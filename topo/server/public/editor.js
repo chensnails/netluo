@@ -98,6 +98,7 @@ window.addEventListener("message", async (event) => {
   let evt;
   try { evt = JSON.parse(event.data); } catch { return; }
   if (evt.event === "init") {
+    CanvasWatch.done();
     post({ action: "load", xml: meta.content, defaultEmpty: "*", url: location.href });
     setStatus("就绪");
   } else if (evt.event === "save" || evt.event === "autosave") {
@@ -167,6 +168,7 @@ async function acquireLock() {
     const dark = TopoTheme.resolve() === "dark" ? "&dark=1" : "";
     const base = config.drawioUrl.replace(/\/+$/, "");
     frame.src = `${base}/?embed=1&proto=json&spin=1&lang=zh&noExitBtn=1${dark}`;
+    CanvasWatch.start(frame, frame.src);
   } catch (e) {
     $("fname").textContent = "加载失败: " + e.message;
   }

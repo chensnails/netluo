@@ -2,6 +2,11 @@
 
 遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 新增
+- **画布加载看护**：drawio 的 iframe 静默失败时（地址不可达、https 页面嵌 http、CSP `frame-src` 未放行、被挂到子路径），页面不再无限白屏——15 秒内没收到 embed 协议的 `init` 握手就在画布上给出配置的地址与五条对应排查项，可一键重载或关闭。编辑器页与只读分享页共用。
+
 ## [1.2.0]
 
 ### 新增

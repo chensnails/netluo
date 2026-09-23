@@ -946,7 +946,7 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
 
 // 冒烟自检：一条命令验过「静态资源、路由、数据库、登录与鉴权链路」，构建产物用它把关
 async function smoke() {
-  const urls = ["/", "/app.js", "/style.css", "/vendor/vditor/dist/index.css", "/vendor/vditor/dist/js/icons/ant.js"];
+  const urls = ["/", "/editor.html", "/app.js", "/canvas-watch.js", "/style.css", "/vendor/vditor/dist/index.css", "/vendor/vditor/dist/js/icons/ant.js"];
   let bad = 0;
   for (const url of urls) {
     const res = await app.inject({ method: "GET", url });

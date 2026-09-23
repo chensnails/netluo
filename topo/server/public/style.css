@@ -78,6 +78,15 @@ a.file-link:hover { text-decoration: underline; }
 .editor-bar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: var(--card); border-bottom: 1px solid var(--line); font-size: 14px; }
 .editor-bar .status { color: var(--muted); font-size: 12px; }
 .editor-frame { flex: 1; border: 0; width: 100%; }
+/* 画布容器：给加载看护（canvas-watch.js）一个可定位的父级，只盖住画布不盖住顶栏 */
+.editor-stage { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+.canvas-fail { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--mask); z-index: 40; padding: 16px; overflow: auto; }
+.canvas-fail .card { width: 620px; max-width: 100%; }
+.canvas-fail h2 { font-size: 15px; margin: 0 0 10px; }
+.canvas-fail p { font-size: 13px; color: var(--muted); margin: 0 0 6px; }
+.canvas-fail code { display: block; font-size: 13px; padding: 6px 8px; background: var(--hover); border-radius: 6px; word-break: break-all; }
+.canvas-fail ul { margin: 10px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.75; }
+.canvas-fail-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 
 /* ---- file manager (M2) ---- */
 .layout { display: flex; gap: 16px; max-width: 1200px; margin: 20px auto; padding: 0 16px; align-items: flex-start; }

@@ -26,6 +26,7 @@ window.addEventListener("message", (event) => {
   let evt;
   try { evt = JSON.parse(event.data); } catch { return; }
   if (evt.event === "init") {
+    CanvasWatch.done();
     post({ action: "load", xml: data.content, defaultEmpty: "*" });
     post({ action: "status", message: "只读分享", modified: false });
   } else if (evt.event === "save" || evt.event === "autosave" || evt.event === "export") {
@@ -46,10 +47,12 @@ async function openEditor() {
     return;
   }
   const frame = $("frame");
+  frame.parentElement.classList.remove("hidden");
   frame.classList.remove("hidden");
   const base = config.drawioUrl.replace(/\/+$/, "");
   drawioOrigin = new URL(base).origin;
   frame.src = `${base}/?embed=1&proto=json&spin=1&lang=zh&noExitBtn=1&modified=0${TopoTheme.resolve() === "dark" ? "&dark=1" : ""}`;
+  CanvasWatch.start(frame, frame.src);
 }
 
 async function loadContent() {
