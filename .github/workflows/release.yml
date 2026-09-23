@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write      # 建 GitHub Release
+  packages: write      # 推 GHCR 镜像
+
+env:
+  # 包名与仓库名不同：GHCR 的用户级容器包一旦建成私有，没有 API 能改可见性（只有组织包有），
+  # 换名重建才能拿到公开包。改这里必须同时改 topo/docker-compose.yml 的 image。
+  IMAGE: ghcr.io/${{ github.repository_owner }}/netluo-app
+
+jobs:
+  binary:
+    name: 三平台单文件二进制
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: topo/server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: topo/server/package-lock.json
+
+      - run: npm ci
+      - run: npm run vendor
+      # 三个目标一次跑完：SHA256SUMS.txt 要覆盖全部产物，拆开跑会互相覆盖
+      - run: node build/sea.mjs --targets=win-x64,linux-x64,linux-arm64 --version=${{ github.ref_name }}
+      - run: sha256sum -c <(sed 's|  |  dist/|' dist/SHA256SUMS.txt)
+      # 单文件产物在真 linux 上跑一遍自检，确认注入与内嵌资源没问题（win 版只能在 Windows 上验）
+      - run: ./dist/netluo-${{ github.ref_name }}-linux-x64 --smoke
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sea
+          path: topo/server/dist/*
+          retention-days: 7
+
+  image:
+    name: 多架构镜像
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: topo/server
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: 汇总产物
+    needs: [binary, image]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sea
+          path: dist
+
+      - name: 取本次版本的更新说明
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          # 取 "## [<版本>]" 到下一个标题之间的正文，末尾的版本链接行不要
+          awk -v v="$VER" '
+            /^## / { p = (index($0, "[" v "]") == 4); next }
+            p && substr($0,1,1) != "[" { print }
+          ' CHANGELOG.md > notes.tmp
+          {
+            [ -s notes.tmp ] && cat notes.tmp || echo "见提交历史。"
+            echo
+            echo "## 部署"
+            echo
+            echo '```bash'
+            echo "# Docker（推荐）：compose 里设 NETLUO_VERSION=$VER 后"
+            echo "docker compose pull && docker compose up -d"
+            echo
+            echo "# 单文件二进制：先验校验和再跑自检"
+            echo "sha256sum -c SHA256SUMS.txt"
+            echo "./netluo-${GITHUB_REF_NAME}-linux-x64 --smoke"
+            echo '```'
+          } > notes.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          body_path: notes.md
+          make_latest: true

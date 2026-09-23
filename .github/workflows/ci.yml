@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: topo/server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: topo/server/package-lock.json
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 生成第三方前端资产
+        run: npm run vendor
+
+      - name: 冒烟自检（路由 / 鉴权 / 多用户 / 写链路 / 备份）
+        run: npm run smoke
+
+      - name: 数据库迁移（空库与老库两种起点）
+        run: npm run test:migrate
+
+      - name: 构建镜像
+        run: docker build -t netluo:ci .
+
+      - name: 镜像内自检
+        run: |
+          docker run --rm \
+            -e NODE_ENV=production \
+            -e TOPO_SECRET=ci-only-secret-value-123 \
+            -e ADMIN_PASSWORD=ci-admin-password-123 \
+            netluo:ci node src/index.js --smoke
+
+      - name: 零配置启动（不给密钥也不给管理员密码）
+        run: |
+          set -euo pipefail
+          boot() { docker run -d --rm --name netluo-zero -p 3090:3000 \
+                     -v netluo-zero-data:/data netluo:ci; }
+          boot >/dev/null
+          for _ in $(seq 1 30); do
+            curl -fsS -o /dev/null http://127.0.0.1:3090/api/config && break
+            sleep 1
+          done
+          curl -fsS -o /dev/null http://127.0.0.1:3090/api/config   # 起不来就在这里失败
+          # 随机凭据必须落在卷里、权限收紧到 0600
+          docker exec netluo-zero sh -c 'stat -c "%a %n" /data/token.secret /data/admin-password'
+          test "$(docker exec netluo-zero stat -c %a /data/admin-password)" = "600"
+          test "$(docker exec netluo-zero stat -c %a /data/token.secret)" = "600"
+          SECRET1=$(docker exec netluo-zero cat /data/token.secret)
+          PW=$(docker exec netluo-zero cat /data/admin-password)
+          # 用生成的密码能登录，说明哈希与落盘的是同一个
+          curl -fsS -o /dev/null -X POST -H 'content-type: application/json' \
+            -d "{\"username\":\"admin\",\"password\":\"$PW\"}" http://127.0.0.1:3090/api/login
+          docker stop netluo-zero >/dev/null
+          # 重启不能换密钥，否则每次升级都把在线用户踢下线
+          boot >/dev/null
+          for _ in $(seq 1 30); do
+            curl -fsS -o /dev/null http://127.0.0.1:3090/api/config && break
+            sleep 1
+          done
+          test "$(docker exec netluo-zero cat /data/token.secret)" = "$SECRET1"
+          # 库里已有用户就不能再生成密码（也不要把密码打进 CI 日志）
+          ! docker logs netluo-zero 2>&1 | grep -q '已生成 admin 初始密码'
+          docker stop netluo-zero >/dev/null
+          docker volume rm netluo-zero-data >/dev/null
+
+      - name: 安装脚本语法检查
+        run: bash -n ../../install.sh

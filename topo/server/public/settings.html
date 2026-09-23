@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>络图 · 设置</title>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="topbar">
+    <h1><a class="brand" href="/">络图 <span class="brand-sub">NetLuo</span></a></h1>
+    <div class="who">
+      <span id="whoami"></span>
+      <button class="ghost icon-btn" data-theme-cycle title="切换主题"></button>
+      <a class="file-link" href="/">文件管理</a>
+      <button class="ghost" id="logoutBtn">退出</button>
+    </div>
+  </div>
+
+  <main class="settings">
+    <section class="card set-card">
+      <h2>外观</h2>
+      <div class="set-row">
+        <div>
+          <div class="k">主题</div>
+          <div class="d">跟随系统会随系统深浅色自动切换；选定浅色/深色后固定不再跟随。保存在本浏览器，登录后与账号同步。</div>
+        </div>
+        <div class="seg" id="themeSeg">
+          <button data-v="auto">跟随系统</button>
+          <button data-v="light">浅色</button>
+          <button data-v="dark">深色</button>
+        </div>
+      </div>
+      <div class="set-row">
+        <div>
+          <div class="k">文档排版</div>
+          <div class="d">Markdown 编辑区的排版风格，切换后重新打开文档生效（深色主题下自动使用深色排版）。</div>
+        </div>
+        <div class="seg" id="docSeg">
+          <button data-v="light">默认</button>
+          <button data-v="wechat">微信</button>
+          <button data-v="ant">Ant</button>
+        </div>
+      </div>
+      <div class="set-hint">顶栏的 ☀/☾ 按钮可在任意页面快速切换；拓扑编辑器（drawio）的深浅色在重新打开该文件时生效。</div>
+    </section>
+
+    <section class="card set-card">
+      <h2>编辑器偏好</h2>
+      <div class="set-row">
+        <div>
+          <div class="k">代码块行号</div>
+          <div class="d">Markdown 文档中代码块左侧显示行号（重新打开文档生效）。</div>
+        </div>
+        <div class="seg" id="lineSeg">
+          <button data-v="0">关闭</button>
+          <button data-v="1">开启</button>
+        </div>
+      </div>
+      <div class="set-row">
+        <div>
+          <div class="k">默认新建类型</div>
+          <div class="d">文件页「＋ 新建」按钮的默认类型。</div>
+        </div>
+        <div class="seg" id="newSeg">
+          <button data-v="drawio">拓扑图</button>
+          <button data-v="md">文档</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card set-card">
+      <h2>账户</h2>
+      <div class="set-row">
+        <div class="k">用户名</div>
+        <span id="uname">-</span>
+      </div>
+      <div class="set-row">
+        <div>
+          <div class="k">修改密码</div>
+          <div class="d">新密码至少 8 位且不能与用户名相同；修改后本设备保持登录，其他设备的登录状态立即失效。</div>
+        </div>
+        <div class="pwd-form">
+          <input type="password" id="pwOld" placeholder="原密码" autocomplete="current-password" />
+          <input type="password" id="pwNew" placeholder="新密码" autocomplete="new-password" />
+          <input type="password" id="pwNew2" placeholder="确认新密码" autocomplete="new-password" />
+          <button class="ghost" id="pwBtn">修改密码</button>
+        </div>
+      </div>
+      <div class="msg" id="pwMsg"></div>
+    </section>
+
+    <section class="card set-card hidden" id="membersCard">
+      <h2>成员管理</h2>
+      <div class="user-list" id="userList"><div class="empty">加载中…</div></div>
+      <div class="set-row">
+        <div>
+          <div class="k">新建成员</div>
+          <div class="d">新用户看不到其他人的文件。停用会立即让该账号的登录状态失效，但保留其数据；删除会连同其文件、历史版本与分享链接一并清除。</div>
+        </div>
+        <div class="pwd-form">
+          <input type="text" id="nu" placeholder="用户名" autocomplete="off" />
+          <input type="password" id="np" placeholder="初始密码（至少 8 位）" autocomplete="new-password" />
+          <select id="nr" class="ui-select"><option value="user">普通成员</option><option value="admin">管理员</option></select>
+          <button class="ghost" id="newUserBtn">新建成员</button>
+        </div>
+      </div>
+      <div class="msg" id="userMsg"></div>
+      <div class="set-row">
+        <div>
+          <div class="k">自助注册</div>
+          <div class="d" id="regState">-</div>
+        </div>
+      </div>
+      <div class="set-row">
+        <div>
+          <div class="k">整库备份</div>
+          <div class="d">导出一份 SQLite 冷备份（含全部成员的数据），升级或改结构前建议先下载一份。</div>
+        </div>
+        <button class="ghost" id="backupBtn">下载 .db</button>
+      </div>
+      <div class="set-hint" id="instanceInfo">-</div>
+    </section>
+
+    <section class="card set-card">
+      <h2>我的分享链接</h2>
+      <div class="share-list" id="shareList"><div class="empty">加载中…</div></div>
+      <div class="set-hint">撤销后链接立即失效，已打开的页面下次刷新即无法读取内容。</div>
+    </section>
+
+    <section class="card set-card">
+      <h2>存储与统计</h2>
+      <div class="stat-grid" id="stats"></div>
+      <div class="set-row">
+        <div>
+          <div class="k">导出全部文件</div>
+          <div class="d">按目录结构打包为 zip，内含 .drawio / .md 原文，可离线备份或迁移。</div>
+        </div>
+        <button class="ghost" id="exportBtn">下载 zip</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="/ui.js"></script>
+  <script src="/settings.js"></script>
+</body>
+</html>

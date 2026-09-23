@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>络图 NetLuo</title>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div id="loginView" class="login-wrap hidden">
+    <div class="card">
+      <h2>络图 <span class="brand-sub">NetLuo</span></h2>
+      <div class="login-sub">网络拓扑与文档协作平台</div>
+      <div id="loginForm">
+        <label>用户名</label>
+        <input type="text" id="lu" autocomplete="username" />
+        <label>密码</label>
+        <input type="password" id="lp" autocomplete="current-password" />
+        <div class="msg" id="loginMsg"></div>
+        <button class="block" id="loginBtn">登 录</button>
+        <div class="login-alt hidden" id="regWrap">
+          <span>还没有账号？</span><a href="#register" id="regLink">注册</a>
+        </div>
+      </div>
+      <div id="registerForm" class="hidden">
+        <label>用户名</label>
+        <input type="text" id="ru" autocomplete="username" placeholder="2-32 位中文/字母/数字" />
+        <label>密码</label>
+        <input type="password" id="rp" autocomplete="new-password" placeholder="至少 8 位" />
+        <label>注册码</label>
+        <input type="text" id="rc" autocomplete="off" placeholder="向管理员索取" />
+        <div class="msg" id="regMsg"></div>
+        <button class="block" id="regBtn">注册并登录</button>
+        <div class="login-alt"><a href="#login" id="backLink">返回登录</a></div>
+      </div>
+      <div class="login-ver" id="loginVer"></div>
+    </div>
+  </div>
+
+  <div id="appView" class="hidden">
+    <div class="topbar">
+      <h1><a class="brand" href="/">络图 <span class="brand-sub">NetLuo</span></a></h1>
+      <div class="who">
+        <span id="whoami"></span>
+        <button class="ghost icon-btn" data-theme-cycle title="切换主题"></button>
+        <a class="file-link" href="/settings.html">设置</a>
+        <button class="ghost" id="logoutBtn">退出</button>
+      </div>
+    </div>
+    <div class="layout">
+      <aside class="tree-pane card">
+        <div class="tree-head">
+          <span>文件树</span>
+          <button class="ghost sm" id="newFolderRootBtn" title="在根目录新建文件夹">＋目录</button>
+        </div>
+        <div id="tree"></div>
+      </aside>
+      <section class="list-pane card">
+        <div class="toolbar">
+          <div class="crumb-wrap">
+            <div id="crumb" class="crumb"></div>
+            <div class="search-row">
+              <input type="search" id="searchInput" class="search" placeholder="搜索文件名（/ 或 Ctrl+K）" autocomplete="off" />
+              <label class="chk hidden" id="deepWrap"><input type="checkbox" id="deepChk" /> 含子目录</label>
+              <span class="count" id="countTip"></span>
+            </div>
+          </div>
+          <div class="tools">
+            <button class="ghost sm" id="newFolderBtn">＋ 新建文件夹</button>
+            <button id="newPrimary">＋ 新建</button>
+            <button class="ghost" id="newSecondary">＋ 新建</button>
+            <button class="ghost" id="importBtn">导入文件</button>
+            <input type="file" id="importInput" accept=".drawio,.xml,.md" class="hidden" multiple />
+            <button class="ghost sm" id="helpBtn" title="键盘快捷键">⌨</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>名称</th><th>类型</th><th>版本</th><th>更新时间</th><th></th></tr></thead>
+            <tbody id="fileRows"></tbody>
+          </table>
+        </div>
+        <div class="empty" id="emptyTip"></div>
+      </section>
+    </div>
+  </div>
+
+  <div id="dropOverlay" class="drop-overlay hidden">松手导入文件（.drawio / .xml / .md）</div>
+
+  <script src="/ui.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+# 这个项目的产物要跑在 Linux 上：CRLF 会让 shell 脚本和 node 直接报错
+* text=auto eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.png binary
+*.ico binary
+*.woff2 binary

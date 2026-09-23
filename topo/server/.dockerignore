@@ -1,0 +1,9 @@
+node_modules
+dist
+build/.sea
+public/vendor
+.env
+*.db
+*.db-wal
+*.db-shm
+.git

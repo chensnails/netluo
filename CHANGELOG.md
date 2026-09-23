@@ -1,0 +1,54 @@
+# 更新日志
+
+遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与[语义化版本](https://semver.org/lang/zh-CN/)。
+
+## [1.2.0]
+
+### 新增
+- **`install.sh` 一键安装**：`curl -fsSL <raw>/install.sh | sudo bash` 即可，只需要 Docker。检查环境、生成 `.env`、拉镜像起服务、等健康检查通过，最后打印访问地址与管理员密码。选项：`--dir` / `--port` / `--version` / `--drawio` / `--password` / `--no-drawio`；已装过再跑一次即为升级。
+- **必填配置降到 1 项**：`TOPO_SECRET` 留空时生成随机密钥并持久化为 `TOPO_DB` 同目录的 `token.secret`，重启与升级不再踢掉在线用户；`ADMIN_PASSWORD` 留空时生成随机管理员密码写入同目录的 `admin-password`。
+
+### 变更
+- 生产模式不再因缺少 `TOPO_SECRET` / `ADMIN_PASSWORD` 拒绝启动——随机生成的 64 位十六进制密钥强于手填，且落盘复用。
+- 新增 `.gitattributes` 强制 LF：CRLF 会让 `install.sh` 在 Linux 上直接报语法错误。
+
+### 安全
+- 自动生成的凭据文件权限 0600，位置与数据库同目录（权限边界一致）；随机密码不进日志，只打印文件路径，`install.sh` 取用后即删。
+
+## [1.1.1]
+
+### 变更
+- **镜像地址改为 `ghcr.io/chensnails/netluo-app`**。旧的 `ghcr.io/chensnails/netluo` 包在仓库还是私有时创建，用户级容器包没有改可见性的 API（只有组织包有），转公开仓库也不会传导过去，所以换名重建以支持匿名 `docker compose pull`。功能与 1.1.0 相同，只是发布地址变了；compose 里请同步改用新镜像（或 `docker compose up -d --build` 走源码）。
+
+## [1.1.0]
+
+### 新增
+- **实例内多用户**：角色（`admin` / `user`）与账号状态（`active` / `disabled`）；设置页「成员」分区支持建号、改角色、停用、重置密码、删号（删除需键入用户名二次确认）。
+- **自助注册**：`REGISTRATION_CODE` 非空时才开放，登录页可切到注册面板；默认关闭，只有管理员能建账号。
+- **Schema 迁移**：`PRAGMA user_version` 编号迁移，每次升级自动执行；带数据的库迁移前先 `VACUUM INTO` 生成快照文件（`TOPO_BACKUP_ON_MIGRATE=0` 可关）。
+- **整库备份**：`GET /api/admin/backup` 流式下载一致性快照，不锁服务。
+- **发布流水线**：GitHub Actions 构建三平台单文件二进制与 linux/amd64+arm64 多架构镜像，推送 GHCR 并建 Release；PR/push 跑冒烟自检与迁移测试。
+
+### 安全
+- 登录、注册、分享口令校验走滑动窗口限速；凭据校验恒定时间比对。
+- 会话可吊销：改密、改角色、停用均递增 `token_epoch`，旧 cookie 立即失效。
+- 反代 HTTPS 下 cookie 带 `Secure`；`TRUST_PROXY` 让限流与协议判定看到真实客户端 IP。
+- 非管理员访问 `/api/admin/*` 一律 403 并记审计日志。
+
+### 变更
+- 镜像改从 `ghcr.io/chensnails/netluo` 拉取，`NETLUO_VERSION` 控制标签；源码构建仍可用 `--build`。
+- 密码最低 8 位，用户名校验长度与字符集。
+- 新增 `docker-compose.dev.yml`：容器内跑源码热重载，不挂 `node_modules`。
+
+## [1.0.0]
+
+### 新增
+- 文件树 + drawio 画布 + 所见即所得 Markdown 编辑器（Vditor），带版本历史、编辑锁（423）、乐观并发（409）、只读分享链接。
+- 双色主题（跟随系统 + 手动切换）、设置页、zip 全量导出。
+- 单文件二进制部署（Node SEA，内嵌 Node 运行时、原生 SQLite 模块与前端资源）与 Docker Compose 部署并存。
+- 安全收口（HttpOnly + HMAC 令牌、CSP 白名单、路径与输入校验）、内存降载、窄屏与交互美化。
+
+[1.2.0]: https://github.com/chensnails/netluo/releases/tag/v1.2.0
+[1.1.1]: https://github.com/chensnails/netluo/releases/tag/v1.1.1
+[1.1.0]: https://github.com/chensnails/netluo/releases/tag/v1.1.0
+[1.0.0]: https://github.com/chensnails/netluo/releases/tag/v1.0.0

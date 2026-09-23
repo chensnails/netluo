@@ -1,0 +1,22 @@
+# 依赖与构建产物
+node_modules/
+# 镜像构建时生成的预压缩文件与第三方资产（由 npm 包复制而来，不入库）
+*.gz
+topo/server/public/vendor/
+topo/server/dist/
+topo/server/build/.sea/
+__pycache__/
+
+# 本地/线上配置与用户数据
+.env
+*.db
+*.db-wal
+*.db-shm
+# 服务端自动生成的令牌密钥与初始管理员密码（数据卷里的同名文件）
+token.secret
+admin-password
+
+# 编辑器与系统
+.DS_Store
+Thumbs.db
+*.log

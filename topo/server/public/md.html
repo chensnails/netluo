@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>络图 · 文档编辑</title>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/vendor/vditor/dist/index.css" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body class="editor-main">
+  <div class="editor-bar">
+    <a href="/" class="file-link">← 返回列表</a>
+    <strong id="fname">加载中…</strong>
+    <span class="status" id="status"></span>
+    <span class="banner hidden" id="lockBanner"></span>
+    <span style="flex:1"></span>
+    <a class="file-link" href="/settings.html">设置</a>
+    <button class="ghost" id="saveBtn">保存 (Ctrl+S)</button>
+  </div>
+  <div class="md-host"><div id="vditor"></div></div>
+  <script src="/vendor/vditor/dist/index.min.js"></script>
+  <script src="/ui.js"></script>
+  <script src="/md.js"></script>
+</body>
+</html>

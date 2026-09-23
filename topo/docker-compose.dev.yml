@@ -1,0 +1,20 @@
+# 开发覆盖层：改代码不用重建镜像
+#
+#   cd topo && npm --prefix server run vendor        # 首次或在 host 更新依赖后跑一次，生成 public/vendor
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# 之后改 server/src 或 server/public 下的文件即存盘生效（node --watch 自动重启）。
+# 只挂源码，不挂 node_modules：容器里那份是给 linux 编译的原生模块，host 的 Windows 版本会直接把服务弄崩。
+services:
+  topo:
+    image: netluo:dev
+    build: ./server
+    environment:
+      # 生产镜像里 preCompressed 会优先送 .gz，开发要的是所见即所得
+      NODE_ENV: development
+    volumes:
+      - ./server/src:/app/src
+      - ./server/public:/app/public
+    command: ["node", "--watch", "src/index.js"]
+    ports:
+      - "3090:3000"

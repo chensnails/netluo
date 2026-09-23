@@ -1,0 +1,42 @@
+# 生产：从 GHCR 拉构建好的镜像，本机不需要 Node，也不需要源码
+#
+#   docker compose pull && docker compose up -d
+#
+# 从源码安装（不想用公开镜像时）：docker compose up -d --build
+# 开发热重载：docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+services:
+  topo:
+    # 换版本即改 .env 里的 NETLUO_VERSION（1 / 1.1 / 具体小版本 / latest）
+    image: ghcr.io/chensnails/netluo-app:${NETLUO_VERSION:-1}
+    build: ./server
+    container_name: netluo
+    ports:
+      - "3090:3000"
+    environment:
+      # 留空是合法配置：服务端会生成随机密钥/密码并持久化到数据卷，见 .env.example 的注释。
+      # 写成 ${VAR:-} 而不是 ${VAR} 是为了让空值也传进去，由服务端判空，而不是让变量消失。
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      TOPO_SECRET: ${TOPO_SECRET:-}
+      DRAWIO_URL: ${DRAWIO_URL:-}
+      # 非空才开放自助注册，值即注册口令；留空则只有管理员能建账号
+      REGISTRATION_CODE: ${REGISTRATION_CODE:-}
+      # 放在 Nginx/Caddy 反代后面必须为 1，否则限流会把所有用户算作同一个 IP
+      TRUST_PROXY: ${TRUST_PROXY:-}
+      NODE_OPTIONS: --max-old-space-size=224
+    volumes:
+      - topo-data:/data
+    restart: unless-stopped
+    init: true
+    mem_limit: 384m
+    mem_swappiness: 40
+
+  drawio:
+    image: jgraph/drawio:latest
+    container_name: netluo-drawio
+    ports:
+      - "3091:8080"
+    restart: unless-stopped
+    mem_limit: 768m
+
+volumes:
+  topo-data:

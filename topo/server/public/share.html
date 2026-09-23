@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>络图 · 分享</title>
+  <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body class="share-main">
+  <div class="editor-bar">
+    <a class="brand" href="/">络图 <span class="brand-sub">NetLuo</span></a>
+    <strong id="fname">加载中…</strong>
+    <span class="status" id="status"></span>
+    <span style="flex:1"></span>
+    <span class="banner">只读分享</span>
+  </div>
+  <div id="gate" class="share-center hidden">
+    <div class="card" style="width:320px">
+      <h2 style="font-size:15px;margin:0 0 12px">该分享需要密码</h2>
+      <input type="password" id="pw" placeholder="访问密码" />
+      <div class="msg" id="gateMsg"></div>
+      <button class="block" id="gateBtn">查看</button>
+    </div>
+  </div>
+  <iframe id="frame" class="editor-frame hidden"></iframe>
+  <div id="mdView" class="md-body share-md hidden"></div>
+  <script src="/vendor/markdown-it.min.js"></script>
+  <script src="/share.js"></script>
+</body>
+</html>
