@@ -27,7 +27,7 @@ usage() {
 用法：install.sh [选项]
   -d, --dir <路径>      安装目录，默认 /opt/netluo
   -p, --port <端口>     络图监听端口，默认 3090
-  -v, --version <标签>  镜像标签（1 / 1.1 / 1.1.0 / latest），默认 1
+  -v, --version <标签>  镜像标签（1 / 1.2 / 1.2.0 / latest），默认 1
       --drawio <URL>    浏览器可访问的 drawio 地址，默认 http://<首个网卡IP>:3091
   -w, --password <密码> 管理员密码；不给且在终端里会交互询问，非交互则自动生成
       --no-drawio       不起 drawio 容器（只用 Markdown 时省 768MB，需自备 DRAWIO_URL）

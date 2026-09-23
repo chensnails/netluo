@@ -149,7 +149,8 @@ docker compose pull && docker compose up -d
 二进制：下载新版文件替换 `ExecStart` 路径后重启即可。
 
 **回滚**：把 `NETLUO_VERSION`（或二进制）换回旧版本再启动。已执行过的迁移不会倒退，
-需要回滚到迁移前状态时，停服并用迁移快照覆盖 `TOPO_DB`。
+需要回滚到迁移前状态时，停服并用迁移快照覆盖 `TOPO_DB`。注意 1.2.0 之前的镜像标签
+（`1.1`、`1.1.1`）随仓库重建已不存在，最早只能回滚到 `1.2`。
 
 **备份**：停服后直接复制 `TOPO_DB`（连同 `-wal`/`-shm`），或在线用
 `sqlite3 topo.db "PRAGMA wal_checkpoint(TRUNCATE)"` 回收 WAL 后拷单文件；

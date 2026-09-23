@@ -11,6 +11,7 @@
 ### 变更
 - 生产模式不再因缺少 `TOPO_SECRET` / `ADMIN_PASSWORD` 拒绝启动——随机生成的 64 位十六进制密钥强于手填，且落盘复用。
 - 新增 `.gitattributes` 强制 LF：CRLF 会让 `install.sh` 在 Linux 上直接报语法错误。
+- 仓库重建为单条初始提交，`v1.1.0` / `v1.1.1` 标签不再存在；镜像包同步重建，标签 `1.1` / `1.1.1` 已不可拉取。可用标签为 `1` / `1.2` / `1.2.0` / `latest`，`1` 与 `latest` 始终指向最新构建。下方 1.1.x 与 1.0.0 条目保留作为版本说明。
 
 ### 安全
 - 自动生成的凭据文件权限 0600，位置与数据库同目录（权限边界一致）；随机密码不进日志，只打印文件路径，`install.sh` 取用后即删。
@@ -49,6 +50,6 @@
 - 安全收口（HttpOnly + HMAC 令牌、CSP 白名单、路径与输入校验）、内存降载、窄屏与交互美化。
 
 [1.2.0]: https://github.com/chensnails/netluo/releases/tag/v1.2.0
-[1.1.1]: https://github.com/chensnails/netluo/releases/tag/v1.1.1
-[1.1.0]: https://github.com/chensnails/netluo/releases/tag/v1.1.0
-[1.0.0]: https://github.com/chensnails/netluo/releases/tag/v1.0.0
+[1.1.1]: https://github.com/chensnails/netluo/blob/main/CHANGELOG.md#111
+[1.1.0]: https://github.com/chensnails/netluo/blob/main/CHANGELOG.md#110
+[1.0.0]: https://github.com/chensnails/netluo/blob/main/CHANGELOG.md#100

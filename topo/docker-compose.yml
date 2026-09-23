@@ -6,7 +6,7 @@
 # 开发热重载：docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 services:
   topo:
-    # 换版本即改 .env 里的 NETLUO_VERSION（1 / 1.1 / 具体小版本 / latest）
+    # 换版本即改 .env 里的 NETLUO_VERSION（1 / 1.2 / 具体小版本 / latest，1 与 latest 指向最新构建）
     image: ghcr.io/chensnails/netluo-app:${NETLUO_VERSION:-1}
     build: ./server
     container_name: netluo
