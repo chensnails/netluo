@@ -2,6 +2,11 @@
 
 遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 修复
+- compose 里的 `mem_swappiness` 去掉：cgroup v2 没有按容器粒度的 swappiness 接口，Docker 每次启动都会丢弃它并刷 `Your kernel does not support memory swappiness capabilities or the cgroup is not mounted.`。堆上限本就由 `NODE_OPTIONS=--max-old-space-size=224` 与 `mem_limit: 384m` 约束，这项是多余的。
+
 ## [1.3.1]
 
 ### 修复

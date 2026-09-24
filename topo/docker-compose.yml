@@ -31,7 +31,9 @@ services:
     restart: unless-stopped
     init: true
     mem_limit: 384m
-    mem_swappiness: 40
+    # 不设 mem_swappiness：cgroup v2 没有按容器粒度的 swappiness 接口，Docker 会丢弃它并
+    # 每次启动刷 "Your kernel does not support memory swappiness capabilities"。
+    # 堆上限已由上面的 NODE_OPTIONS 与 mem_limit 共同约束。
 
   drawio:
     image: jgraph/drawio:latest
