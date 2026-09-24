@@ -19,7 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/chensnails/netluo/main/install.sh |
 
 ```bash
 curl -fo install.sh https://raw.githubusercontent.com/chensnails/netluo/main/install.sh
-sudo bash install.sh --version 1.2.0 --password '你的密码'
+sudo bash install.sh --version 1.3.1 --password '你的密码'
 sudo bash install.sh --help     # 目录/端口/密码/不起 drawio 等选项
 ```
 
@@ -74,7 +74,7 @@ After=network.target
 
 [Service]
 EnvironmentFile=/etc/netluo/netluo.env
-ExecStart=/opt/netluo/netluo-v1.2.0-linux-x64
+ExecStart=/opt/netluo/netluo-v1.3.1-linux-x64
 Restart=always
 User=netluo
 
@@ -98,7 +98,7 @@ WantedBy=multi-user.target
 | `TOPO_BACKUP_ON_MIGRATE` | 否 | 结构迁移前自动快照，默认开；`0` 关闭 |
 | `PORT` | 否 | 默认 3000；容器内仍是 3000，宿主机映射用它（compose 写 `${PORT:-3090}:3000`，`install.sh --port` 改的就是这项） |
 | `NODE_OPTIONS` | 否 | 建议 `--max-old-space-size=224` |
-| `NETLUO_VERSION` | 仅 compose | 镜像标签，如 `1` / `1.2` / `1.2.0` / `latest` |
+| `NETLUO_VERSION` | 仅 compose | 镜像标签，如 `1` / `1.3` / `1.3.1` / `latest`（默认 `1`） |
 
 ## 反向代理与 HTTPS
 
@@ -168,12 +168,16 @@ server {
 
 ## 升级 / 回滚 / 备份
 
-**升级**（Docker）：重跑一次 `sudo bash install.sh --version 1.2` 即可；或者 `.env` 里改
-`NETLUO_VERSION=1.2`，然后
+**升级**（Docker）：重跑一次 `sudo bash install.sh --version 1.3` 即可；或者 `.env` 里改
+`NETLUO_VERSION=1.3`，然后
 
 ```bash
 docker compose pull && docker compose up -d
 ```
+
+不想盯版本号就留 `NETLUO_VERSION=1`（默认值）：`1` 与 `latest` 始终指向最新构建，
+`docker compose pull && docker compose up -d` 就是全部升级动作。想锁住本次更新不再自动跟进，
+就把它改成具体小版本（如 `1.3.1`）。
 
 结构变更由内置迁移按版本号顺序执行，每次启动自动完成；库里已有数据时，迁移前会在
 `TOPO_DB` 同目录留下 `topo.db.premigration-v<旧版本>-<时间戳>.db` 快照。
@@ -228,7 +232,7 @@ node build/sea.mjs --targets=win-x64,linux-x64,linux-arm64
 
 ```bash
 cd topo/server
-GH_TOKEN=... node build/publish.mjs --version=v1.2.0 --wait
+GH_TOKEN=... node build/publish.mjs --version=v1.3.1 --wait
 ```
 
 ## 目录结构
