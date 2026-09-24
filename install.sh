@@ -70,8 +70,11 @@ HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 
 if [ -f .env ]; then
   say "已存在 $DIR/.env，沿用其中的配置（版本/端口按本次参数更新）"
-  grep -q '^DRAWIO_URL=' .env || echo "DRAWIO_URL=$DRAWIO_URL" >> .env
-  sed -i "s|^NETLUO_VERSION=.*|NETLUO_VERSION=$VERSION|; s|^DRAWIO_URL=.*|DRAWIO_URL=$DRAWIO_URL|" .env
+  for kv in "DRAWIO_URL=$DRAWIO_URL" "PORT=$PORT" "NETLUO_VERSION=$VERSION"; do
+    k=${kv%%=*}
+    grep -q "^$k=" .env || echo "$kv" >> .env
+  done
+  sed -i "s|^NETLUO_VERSION=.*|NETLUO_VERSION=$VERSION|; s|^DRAWIO_URL=.*|DRAWIO_URL=$DRAWIO_URL|; s|^PORT=.*|PORT=$PORT|" .env
 else
   # TOPO_SECRET 留空即可：服务端会生成随机密钥并持久化到数据卷，重启不会踢掉登录态
   cat > .env <<EOF
@@ -79,6 +82,7 @@ ADMIN_PASSWORD=$ADMIN_PASSWORD
 TOPO_SECRET=
 DRAWIO_URL=$DRAWIO_URL
 NETLUO_VERSION=$VERSION
+PORT=$PORT
 EOF
   chmod 600 .env
   say "已生成 $DIR/.env"

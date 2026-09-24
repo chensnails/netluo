@@ -32,6 +32,19 @@ jobs:
       - name: 数据库迁移（空库与老库两种起点）
         run: npm run test:migrate
 
+      - name: 反代配置回归（nginx:alpine 实跑单域名方案）
+        run: npm run test:nginx
+
+      - name: compose 端口内插校验
+        run: |
+          set -euo pipefail
+          cd ..
+          out=$(PORT=3111 docker compose -f docker-compose.yml -f docker-compose.dev.yml config)
+          echo "$out" | grep -q '3111' || { echo "PORT 没传到端口映射"; exit 1; }
+          # 两份 compose 都要跟着 PORT 走，否则叠加时会出现写死或重复的映射
+          if echo "$out" | grep -q '3090'; then echo "端口映射里还有写死的 3090"; exit 1; fi
+          docker compose -f docker-compose.yml -f docker-compose.dev.yml config -q
+
       - name: 构建镜像
         run: docker build -t netluo:ci .
 

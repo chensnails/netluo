@@ -6,6 +6,11 @@
 
 ### 新增
 - **画布加载看护**：drawio 的 iframe 静默失败时（地址不可达、https 页面嵌 http、CSP `frame-src` 未放行、被挂到子路径），页面不再无限白屏——15 秒内没收到 embed 协议的 `init` 握手就在画布上给出配置的地址与五条对应排查项，可一键重载或关闭。编辑器页与只读分享页共用。
+- **`topo/nginx/netluo.conf` 单域名反向代理示例**：一个域名、一张证书、只开 443，主站在 `/`、画布在同域的 `/drawio/`（代理剥前缀，drawio 的资源全是相对引用所以能这么挂）。同域顺带消掉三类反代后画布白屏的成因：https 页面嵌 http 画布被混合内容拦截、CSP `frame-src` 不同源被拦、访客还需另外开放 3091。配套 `.env`：`DRAWIO_URL=https://你的域名/drawio`、`TRUST_PROXY=1`，改完要 `docker compose up -d --force-recreate topo`（CSP 在进程启动时算一次）。
+- **反代配置回归测试**：`npm run test:nginx` 用 `nginx:alpine` 把上面那份配置实跑一遍（本机没有 Linux Docker 时自动跳过，CI 每次都跑）——校验 `nginx -t` 通过、`/drawio/` 转给上游时确实剥了前缀、其余路径原样到主站、`/drawio` 301 到 `/drawio/`、80 跳 https。
+
+### 修复
+- **`install.sh --port` 之前不生效**：compose 里的端口映射写死 `3090:3000`，`--port` 只写进了 `.env`。现在映射为 `${PORT:-3090}:3000`，升级重跑时也会把新端口同步进已有的 `.env`。
 
 ## [1.2.0]
 

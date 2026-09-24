@@ -17,4 +17,5 @@ services:
       - ./server/public:/app/public
     command: ["node", "--watch", "src/index.js"]
     ports:
-      - "3090:3000"
+      # 与生产那份用同一个变量，否则叠加时两条映射会重复
+      - "${PORT:-3090}:3000"

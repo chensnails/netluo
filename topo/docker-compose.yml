@@ -11,7 +11,8 @@ services:
     build: ./server
     container_name: netluo
     ports:
-      - "3090:3000"
+      # 反代之后想只监听回环就改成 "127.0.0.1:${PORT:-3090}:3000"
+      - "${PORT:-3090}:3000"
     environment:
       # 留空是合法配置：服务端会生成随机密钥/密码并持久化到数据卷，见 .env.example 的注释。
       # 写成 ${VAR:-} 而不是 ${VAR} 是为了让空值也传进去，由服务端判空，而不是让变量消失。
@@ -34,6 +35,8 @@ services:
     image: jgraph/drawio:latest
     container_name: netluo-drawio
     ports:
+      # 走单域名反代（topo/nginx/netluo.conf）时可以收成 "127.0.0.1:3091:8080"，
+      # 让访客只能经 HTTPS 访问画布
       - "3091:8080"
     restart: unless-stopped
     mem_limit: 768m

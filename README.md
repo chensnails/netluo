@@ -96,14 +96,33 @@ WantedBy=multi-user.target
 | `TRUST_PROXY` | 否 | 反代后设为 `1`（同机代理可用 `loopback`），否则限速把所有访客算作同一个 IP |
 | `TOPO_DB` | 否 | SQLite 路径，默认 `./topo-dev.db`；容器内 `/data/topo.db` |
 | `TOPO_BACKUP_ON_MIGRATE` | 否 | 结构迁移前自动快照，默认开；`0` 关闭 |
-| `PORT` | 否 | 监听端口，默认 3000 |
+| `PORT` | 否 | 默认 3000；容器内仍是 3000，宿主机映射用它（compose 写 `${PORT:-3090}:3000`，`install.sh --port` 改的就是这项） |
 | `NODE_OPTIONS` | 否 | 建议 `--max-old-space-size=224` |
 | `NETLUO_VERSION` | 仅 compose | 镜像标签，如 `1` / `1.2` / `1.2.0` / `latest` |
 
 ## 反向代理与 HTTPS
 
 对外提供服务的实例应挂 HTTPS：会话 cookie 在识别到 https 时自动加 `Secure`，
-`TRUST_PROXY=1` 让限速按真实客户端 IP 分桶。nginx 示例：
+`TRUST_PROXY=1` 让限速按真实客户端 IP 分桶。
+
+**方案 A：一个域名搞定（推荐）**。仓库带了一份 `topo/nginx/netluo.conf`，单域名、单证书、
+只开 443，把画布挂在同域的 `/drawio/` 下：
+
+```bash
+sudo cp topo/nginx/netluo.conf /etc/nginx/conf.d/netluo.conf
+sudo vim /etc/nginx/conf.d/netluo.conf      # 只需改 server_name 和证书路径
+sudo nginx -t && sudo systemctl reload nginx
+# .env 里改成：DRAWIO_URL=https://topo.example.com/drawio 与 TRUST_PROXY=1
+cd /opt/netluo && sudo docker compose up -d --force-recreate topo
+```
+
+同域一举避开三类常见故障：https 页面嵌 http 画布被混合内容静默拦截、CSP `frame-src`
+与画布不同源被拦、以及还得对访客开放 3091 端口。能这么挂是因为 drawio 页面的资源全部是
+相对引用（`js/main.js`、`mxgraph/src/mxClient.js` 等），代理时剥掉前缀就够了。
+**改完 `.env` 必须重建容器**：CSP 是进程启动时按 `DRAWIO_URL` 算一次的，只 reload nginx 不生效。
+
+**方案 B：只反代主站**，画布继续用 `http://host:3091`。这时 `DRAWIO_URL` 必须是访客浏览器
+实际能访问到的地址，且协议要与主站一致（主站 https 而画布 http 会被浏览器拦掉）：
 
 ```nginx
 server {
@@ -124,6 +143,7 @@ server {
 ```
 
 对应 `.env`：`TRUST_PROXY=1`，`DRAWIO_URL` 填浏览器实际访问的地址。
+画布打不开时页面会在 15 秒后直接给出地址与排查清单，`F12` 的 Console 里有对应报错原文。
 
 ## 多用户
 
@@ -181,6 +201,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up
 ```bash
 npm run smoke          # 冒烟自检（临时库，静态/鉴权/写链路/多用户/备份）
 npm run test:migrate   # 迁移测试：全新库与 1.0.0 旧库两条路径
+npm run test:nginx     # 反代配置回归：起 nginx:alpine 真转发一遍（需要 Linux Docker，否则跳过）
 npm run build:sea      # 当前平台单文件二进制到 dist/
 node build/sea.mjs --targets=win-x64,linux-x64,linux-arm64
 ```
@@ -189,7 +210,7 @@ node build/sea.mjs --targets=win-x64,linux-x64,linux-arm64
 （缓存在 `~/.cache/netluo-sea`），Windows 上需要系统自带的 `tar.exe`。
 
 正式产物由 GitHub Actions 构建：PR 与 `main` 的推送跑 `ci.yml`
-（依赖安装 → 冒烟 → 迁移测试 → 镜像内自检），打 `v*` 标签跑 `release.yml`
+（依赖安装 → 冒烟 → 迁移测试 → 反代配置回归 → 镜像内自检），打 `v*` 标签跑 `release.yml`
 （三平台二进制 + 多架构镜像推 GHCR + 自动建 Release，说明取自 `CHANGELOG.md`）。
 
 发版只需要一条命令——它会检查干净的工作树、打标签、推送，并等流水线跑完回报地址：
@@ -206,6 +227,7 @@ install.sh                    一键安装/升级脚本（只需要 Docker）
 topo/
   docker-compose.yml        生产：拉 GHCR 镜像，透传环境变量
   docker-compose.dev.yml    开发覆盖层：容器内挂源码热重载
+  nginx/netluo.conf         单域名反向代理示例（主站 / + 画布 /drawio/），CI 里实跑校验
   server/
     src/                    后端（Fastify + better-sqlite3）
     public/                 前端页面（原生 JS）
@@ -213,6 +235,7 @@ topo/
     build/sea.mjs           单文件二进制构建（Node SEA）
     build/publish.mjs       打标签、推送、等 CI 并回报
     build/test-migration.mjs 迁移与快照回归测试
+    build/test-nginx.mjs    反代配置回归测试（nginx:alpine）
     Dockerfile              多阶段、非 root、自带健康检查
 .github/workflows/          CI 冒烟 + tag 发版
 CHANGELOG.md                版本说明，Release 正文取自这里
