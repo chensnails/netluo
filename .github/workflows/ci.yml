@@ -45,6 +45,10 @@ jobs:
           if echo "$out" | grep -q '3090'; then echo "端口映射里还有写死的 3090"; exit 1; fi
           docker compose -f docker-compose.yml -f docker-compose.dev.yml config -q
 
+      - name: 跨平台单文件构建（校验内嵌原生模块）
+        # 产物要到目标机首启才炸，所以每次推送就现做一个非本机目标，确认 .node 真的进了包
+        run: node build/sea.mjs --targets=linux-arm64 --version=ci
+
       - name: 构建镜像
         run: docker build -t netluo:ci .
 

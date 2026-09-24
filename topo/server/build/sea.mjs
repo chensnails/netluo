@@ -83,15 +83,16 @@ function stagePackage(name, nativeSrc) {
     if (SKIP.test(entry)) continue;
     if (entry === "build") {
       const from = path.join(src, "build");
-      if (!fs.existsSync(from)) continue;
-      if (!nativeSrc) {
-        fs.cpSync(from, path.join(dst, "build"), { recursive: true });
-      } else {
-        // 只带上目标平台那一个 .node，别的编译中间产物不进二进制
-        fs.cpSync(path.join(from, "Release"), path.join(dst, "build", "Release"), {
-          recursive: true,
-          filter: (f) => !f.endsWith(".node") || f === nativeSrc,
-        });
+      if (fs.existsSync(from)) {
+        // 中间产物与别平台的 .node 一律不进二进制
+        fs.cpSync(from, path.join(dst, "build"), { recursive: true, filter: (f) => !f.endsWith(".node") });
+      }
+      if (nativeSrc) {
+        // 跨平台构建时本机 build 目录里那份 .node 已被 prebuild-install 换走甚至删掉，
+        // 靠目录拷贝带不出来；必须按 bindings 找的路径显式写入目标平台那一份。
+        const dest = path.join(dst, "build", "Release", "better_sqlite3.node");
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.copyFileSync(nativeSrc, dest);
       }
       continue;
     }
@@ -210,6 +211,11 @@ async function main() {
     const native = nativeFor(t);
     reset(STAGE_NM);
     stagePackage("better-sqlite3", native);
+    // 内嵌资源里少了原生模块也能正常出包，但要到目标机首次启动才炸——在这里就挡住
+    const staged = path.join(STAGE_NM, "better-sqlite3", "build", "Release", "better_sqlite3.node");
+    if (!fs.existsSync(staged) || !nativeIsFor(staged, t)) {
+      throw new Error(`${t} 的内嵌 better_sqlite3.node 缺失或平台不符，拒绝产出跑不起来的二进制`);
+    }
     const files = [...staticFiles, ...listFiles(STAGE_NM).map((rel) => `node_modules/${rel}`)];
     fs.writeFileSync(path.join(WORK, "boot.cjs"), template
       .replace('"__VERSION__"', JSON.stringify(VERSION))

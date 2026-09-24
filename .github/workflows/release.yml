@@ -43,6 +43,43 @@ jobs:
           path: topo/server/dist/*
           retention-days: 7
 
+  # 构建机只能跑本机那一个目标，其余两个过去只校验了 sha256 就发出去了 —— 结果就是一个
+  # 首启即崩的 win 包。这里把每个目标都在真环境（或用户态模拟）里跑一遍自检。
+  verify-win:
+    name: 单文件二进制实测（win-x64）
+    needs: binary
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sea
+          path: dist
+
+      - run: ./dist/netluo-${{ github.ref_name }}-win-x64.exe --smoke
+
+  verify-arm64:
+    name: 单文件二进制实测（linux-arm64）
+    needs: binary
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sea
+          path: dist
+
+      - name: qemu 用户态下跑自检
+        run: |
+          set -euo pipefail
+          chmod +x dist/netluo-${GITHUB_REF_NAME}-linux-arm64
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD/dist:/d:ro" node:24-bookworm-slim \
+            /d/netluo-${GITHUB_REF_NAME}-linux-arm64 --smoke
+
   image:
     name: 多架构镜像
     runs-on: ubuntu-latest
@@ -80,7 +117,7 @@ jobs:
 
   release:
     name: 汇总产物
-    needs: [binary, image]
+    needs: [binary, image, verify-win, verify-arm64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
