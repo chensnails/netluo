@@ -103,6 +103,8 @@ async function loadStats() {
     ["目录数", st.folders],
     ["分享链接", st.shares],
     ["历史版本", st.versions.count],
+    ["图片与附件", st.assets ? st.assets.count : 0],
+    ["附件占用", st.assets ? UI.formatBytes(st.assets.bytes) : "0 B"],
     ["内容占用", UI.formatBytes(st.files.bytes)],
     ["版本库占用", UI.formatBytes(st.versions.bytes)],
     ["最近保存", st.files.last_saved || "-"],

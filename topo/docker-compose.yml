@@ -19,6 +19,8 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       TOPO_SECRET: ${TOPO_SECRET:-}
       DRAWIO_URL: ${DRAWIO_URL:-}
+      # 内置同源转发的上游：容器网络里走服务名，画布端口不用对访客开放
+      DRAWIO_INTERNAL_URL: ${DRAWIO_INTERNAL_URL:-http://drawio:8080}
       # 非空才开放自助注册，值即注册口令；留空则只有管理员能建账号
       REGISTRATION_CODE: ${REGISTRATION_CODE:-}
       # 放在 Nginx/Caddy 反代后面必须为 1，否则限流会把所有用户算作同一个 IP
@@ -35,9 +37,8 @@ services:
     image: jgraph/drawio:latest
     container_name: netluo-drawio
     ports:
-      # 走单域名反代（topo/nginx/netluo.conf）时可以收成 "127.0.0.1:3091:8080"，
-      # 让访客只能经 HTTPS 访问画布
-      - "3091:8080"
+      # 只绑回环，便于本机 curl 排查；访客一律经主站的 /drawio/ 进来，不需要开放 3091
+      - "127.0.0.1:3091:8080"
     restart: unless-stopped
     mem_limit: 768m
 

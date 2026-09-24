@@ -130,6 +130,81 @@ async function acquireLock() {
   }
 }
 
+// ---------- 图片与附件 ----------
+// 上传后文档里只写根相对路径 /asset/<id>：换域名、换端口、走反代、分享给匿名访客都不用改内容，
+// 导出 zip 时由服务端改写成本地相对路径。
+const MAX_ASSET = 5 * 1024 * 1024;
+
+function pickFiles(accept, multiple) {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.multiple = !!multiple;
+    input.style.display = "none";
+    document.body.appendChild(input);
+    input.onchange = () => {
+      const files = [...input.files];
+      input.remove();
+      resolve(files);
+    };
+    // 取消文件对话框没有事件可监听：窗口重新聚焦后仍没选到文件就当作取消
+    window.addEventListener("focus", () => setTimeout(() => {
+      if (input.isConnected && !input.files.length) { input.remove(); resolve([]); }
+    }, 500), { once: true });
+    input.click();
+  });
+}
+
+async function uploadOne(file, kind) {
+  if (readOnly) { UI.toast(`只读模式，无法插入${kind === "image" ? "图片" : "附件"}`, "warn"); return null; }
+  if (file.size > MAX_ASSET) { UI.toast(`「${file.name}」超过 5MB 上限`, "err", 4000); return null; }
+  setStatus("上传中…");
+  try {
+    const res = await fetch(`/api/files/${fileId}/assets?name=${encodeURIComponent(file.name)}&type=${encodeURIComponent(file.type || "")}`, {
+      method: "POST",
+      headers: { "content-type": "application/octet-stream" },
+      body: file,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 423) setReadOnly("编辑锁已失效，无法上传，请刷新页面重新编辑");
+      else UI.toast(`上传失败：${data.error || res.statusText}`, "err", 5000);
+      setStatus(readOnly ? "只读模式" : "未保存");
+      return null;
+    }
+    setStatus("未保存");
+    return data;
+  } catch (e) {
+    UI.toast("上传失败：" + e.message, "err");
+    setStatus("上传失败");
+    return null;
+  }
+}
+
+// 链接文字里的方括号会截断 Markdown 语法，换成全角即可，不必转义成看不懂的字符
+const safeAlt = (s) => String(s).replaceAll("[", "［").replaceAll("]", "］");
+
+async function insertAssets(files, kind) {
+  if (!vd || !files.length) return;
+  const lines = [];
+  for (const f of files) {
+    const r = await uploadOne(f, kind);
+    if (r) lines.push(kind === "image" ? `![${safeAlt(r.name)}](${r.url})` : `[${safeAlt(r.name)}](${r.url})`);
+  }
+  if (!lines.length) return;
+  dirty = true;
+  setStatus("未保存");
+  vd.insertValue(lines.join("\n\n") + "\n", true);
+  vd.focus();
+}
+
+function pickImage() { return pickFiles("image/*", true).then((f) => insertAssets(f, "image")); }
+function pickAttachment() { return pickFiles("", true).then((f) => insertAssets(f, "file")); }
+
+const ICON_IMAGE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zm1 2v10h14V7H5zm3 2a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm9 5.5L14 11l-4.5 5.5h8z"/></svg>';
+const ICON_CLIP = '<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M14.5 3a4.5 4.5 0 0 1 4.5 4.5v8a6.5 6.5 0 1 1-13 0V7a1 1 0 0 1 2 0v8.5a4.5 4.5 0 1 0 9 0v-8A2.5 2.5 0 0 0 14.5 5 1 1 0 0 1 14.5 3z"/></svg>';
+
 function mountEditor() {
   const a = appearance();
   vd = new Vditor("vditor", {
@@ -148,9 +223,22 @@ function mountEditor() {
     toolbar: [
       "headings", "bold", "italic", "strike", "|",
       "line", "quote", "list", "ordered-list", "check", "outdent", "indent", "|",
-      "table", "code", "inline-code", "link", "|",
+      "table", "code", "inline-code", "link",
+      { name: "netluo-image", icon: ICON_IMAGE, tipPosition: "ne", tipText: "插入图片", click: (e, inst) => pickImage(inst) },
+      { name: "netluo-file", icon: ICON_CLIP, tipPosition: "ne", tipText: "插入附件", click: (e, inst) => pickAttachment(inst) },
+      "|",
       "edit-mode", "outline", "fullscreen",
     ],
+    // 自定义 handler 会完全接管 Vditor 内置的分片上传：粘贴与拖拽进来的图片直接走本站接口，
+    // 不引入 multipart 依赖，也不会把文件发往任何第三方地址。
+    upload: {
+      multiple: true,
+      accept: "image/*",
+      handler: async (files) => {
+        if (readOnly) return "只读模式，无法插入图片";
+        await insertAssets(files, "image");
+      },
+    },
     input: () => {
       if (readOnly) return;
       dirty = true;

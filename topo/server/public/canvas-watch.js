@@ -21,6 +21,12 @@
     try { return new URL(url).origin; } catch { return url || "（空）"; }
   }
 
+  // drawioUrl 现在可以是同源相对路径（内置 /drawio 转发），必须按当前页面解析成绝对地址：
+  // postMessage 的 targetOrigin 只接受绝对 URL，iframe.src 给相对路径虽然能用但 origin 校验会失效。
+  function absolute(drawioUrl) {
+    return new URL(drawioUrl, location.href);
+  }
+
   function build() {
     const card = el("div", "card");
     card.appendChild(el("h2", null, `画布 ${TIMEOUT_MS / 1000} 秒内没有就绪`));
@@ -28,10 +34,10 @@
     card.appendChild(el("code", "canvas-fail-url", label(src)));
     const ul = el("ul");
     [
-      "新开标签页直接访问上面的地址。打不开 = 端口没对外开放 / 防火墙拦了 / 访客网络到不了那台机器。",
-      "本站是 https 时，画布地址也必须是 https，否则浏览器按混合内容静默拦掉 iframe。",
-      "地址必须是根路径（子域名或 IP:端口）。挂成子路径（例如 https://host/drawio）时 drawio 按根路径引用的静态资源会 404，永远进不了嵌入模式。",
-      "改过 DRAWIO_URL 要重建容器：CSP 的 frame-src 是进程启动时按它算的，只 reload nginx 不生效。重跑 install.sh --drawio <地址> 即可。",
+      "新开标签页直接访问上面的地址。同源地址（/drawio/…）打不开 = 服务器没配画布容器，或它没起来；compose 里看 drawio 服务的日志。",
+      "地址是外部主机（例如 http://host:3091）时：本站是 https 而它是 http，浏览器会按混合内容静默拦掉 iframe；换成 https 地址，或者干脆不设 DRAWIO_URL 用内置的同源转发。",
+      "改过 DRAWIO_URL / DRAWIO_INTERNAL_URL 要重启主站容器：CSP 的 frame-src 是进程启动时按它算的。",
+      "不想折腾配置：删掉 .env 里的 DRAWIO_URL 重启，画布就走本站 /drawio/，反向代理只需转发主站这一个端口。",
       "浏览器 F12 的 Console / Network 里会有对应的报错原文，能直接对上上面哪一条。",
     ].forEach((t) => ul.appendChild(el("li", null, t)));
     card.appendChild(ul);
@@ -75,6 +81,8 @@
   }
 
   window.CanvasWatch = {
+    // 把配置里的画布地址（同源相对或绝对）解析成 URL 对象，调用方取 origin 与 base
+    resolve(drawioUrl) { return absolute(drawioUrl); },
     // 调用方设好 frame.src 之后再 start，看护只管超时与重来
     start(iframe, url) {
       frame = iframe;

@@ -2,12 +2,18 @@
 
 遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/) 与[语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
+## [1.3.0]
 
 ### 新增
-- **画布加载看护**：drawio 的 iframe 静默失败时（地址不可达、https 页面嵌 http、CSP `frame-src` 未放行、被挂到子路径），页面不再无限白屏——15 秒内没收到 embed 协议的 `init` 握手就在画布上给出配置的地址与五条对应排查项，可一键重载或关闭。编辑器页与只读分享页共用。
-- **`topo/nginx/netluo.conf` 单域名反向代理示例**：一个域名、一张证书、只开 443，主站在 `/`、画布在同域的 `/drawio/`（代理剥前缀，drawio 的资源全是相对引用所以能这么挂）。同域顺带消掉三类反代后画布白屏的成因：https 页面嵌 http 画布被混合内容拦截、CSP `frame-src` 不同源被拦、访客还需另外开放 3091。配套 `.env`：`DRAWIO_URL=https://你的域名/drawio`、`TRUST_PROXY=1`，改完要 `docker compose up -d --force-recreate topo`（CSP 在进程启动时算一次）。
-- **反代配置回归测试**：`npm run test:nginx` 用 `nginx:alpine` 把上面那份配置实跑一遍（本机没有 Linux Docker 时自动跳过，CI 每次都跑）——校验 `nginx -t` 通过、`/drawio/` 转给上游时确实剥了前缀、其余路径原样到主站、`/drawio` 301 到 `/drawio/`、80 跳 https。
+- **内置同源画布转发，反代只需要一个端口**：主进程把 drawio 挂在本站 `/drawio/` 下转发（`src/drawio-proxy.js`），`DRAWIO_URL` 从此可以不填。drawio 页面的资源全是相对引用，剥掉前缀即可，因此同域天然成立——混合内容拦截、CSP `frame-src` 不同源、访客要另开 3091 这三类白屏成因一次消掉，`DRAWIO_URL` 这个最坑的配置项从「必填」变成「高级选项」。转发只带 accept 等少量请求头（Cookie/Authorization 不外传），不透传上游 `set-cookie`，路径含 `.`/`..` 直接拒绝，上游不可达时回 502 并给出目标地址；画布文档改用一份单独的 CSP（它要 `'unsafe-eval'`，套主站那套必白屏），但仍然锁死本源。上游由 `DRAWIO_INTERNAL_URL` 决定，compose 默认 `http://drawio:8080`，单机二进制默认 `http://127.0.0.1:3091`。
+- **Markdown 图片与附件**：工具栏「插入图片」「插入附件」，粘贴与拖拽图片同样直接入库。文件存进 SQLite 的 `assets` 表（不落磁盘，所以整库备份与迁移快照天然覆盖），文档里只记录与主机、端口无关的 `/asset/<id>` 根相对路径——换域名、加反代、内网转公网都不用改文档。匿名分享链接里的图片能显示（判定与该文档的分享规则一致，带密码的分享要先解锁）；导出 zip 时附件落在文档旁的 `<文档名>.assets/`，链接同步改写成本地相对路径，解压后本地打开仍有图。上限单个 5MB、单篇合计 40MB；SVG 因能带脚本一律按下载处理；删除文档/目录/账号时级联清理；统计页展示附件数量与占用。
+- **画布加载看护**：drawio 的 iframe 静默失败时（地址不可达、https 页面嵌 http、CSP `frame-src` 未放行），页面不再无限白屏——15 秒内没收到 embed 协议的 `init` 握手就在画布上给出当前地址与对应排查项，可一键重载或关闭。编辑器页与只读分享页共用。
+- **`topo/nginx/netluo.conf` 单域名反向代理示例**：一个域名、一张证书、只开 443、**只有一个 upstream**（画布由主进程转发，nginx 不再需要第二个 location）。配套 `.env`：`DRAWIO_URL` 留空 + `TRUST_PROXY=1`。
+- **反代配置回归测试**：`npm run test:nginx` 用 `nginx:alpine` 把上面那份配置实跑一遍（本机没有 Linux Docker 时自动跳过，CI 每次都跑）——校验 `nginx -t` 通过、`/drawio/**` 确实转到主站、其余路径原样到主站、80 跳 https，并守住「配置里只允许一个 upstream」这条承诺。
+
+### 变更
+- `DRAWIO_URL` 由必填改为可选；`install.sh` 不再自动填 `http://<网卡IP>:3091`，装完直接就是零配置的内置转发，并会在收尾实测一次 `/drawio/`（502 时提示画布容器没起来）。
+- compose 的 drawio 端口映射收成 `127.0.0.1:3091`，不再对局域网开放——访客经主站进来，这个端口只留作本机排查。
 
 ### 修复
 - **`install.sh --port` 之前不生效**：compose 里的端口映射写死 `3090:3000`，`--port` 只写进了 `.env`。现在映射为 `${PORT:-3090}:3000`，升级重跑时也会把新端口同步进已有的 `.env`。

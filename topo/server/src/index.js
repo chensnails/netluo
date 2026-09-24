@@ -10,6 +10,7 @@ import zlib from "node:zlib";
 import { promisify } from "node:util";
 import db, { bootstrapAdmin, createUser, hashPassword, verifyPassword, DUMMY_HASH, EMPTY_DRAWIO, EMPTY_MD, readCredential, writeCredential } from "./db.js";
 import { makeZip } from "./zip.js";
+import { registerDrawioProxy, PREFIX as DRAWIO_PREFIX, defaultUpstream } from "./drawio-proxy.js";
 
 const gzip = promisify(zlib.gzip);
 
@@ -43,6 +44,8 @@ const MAX_ZIP_BYTES = 64 * 1024 * 1024;
 let DRAWIO_ORIGIN = "";
 try { DRAWIO_ORIGIN = new URL(process.env.DRAWIO_URL || "").origin; } catch { DRAWIO_ORIGIN = ""; }
 if (DRAWIO_ORIGIN === "null") DRAWIO_ORIGIN = "";
+// 画布对外的地址：没配 DRAWIO_URL 就用内置的同源转发（见 src/drawio-proxy.js）
+const DRAWIO_PUBLIC = (process.env.DRAWIO_URL || "").trim() || DRAWIO_PREFIX;
 
 // Vditor 会用 XHR 拉图标文件再以内联 script 注入精灵图。为不开 script-src 'unsafe-inline'，
 // 按内容哈希精确放行这一个文件；换版本时哈希变了会自动重新计算。
@@ -76,6 +79,10 @@ const TRUST_PROXY = process.env.TRUST_PROXY === "loopback" ? "loopback"
 
 const app = Fastify({ logger: true, bodyLimit: MAX_CONTENT + 4 * 1024 * 1024, trustProxy: TRUST_PROXY });
 
+// 附件走裸请求体（application/octet-stream），不引入 multipart 解析：
+// 前端用 Vditor 的自定义 upload.handler 自己发 fetch，服务端拿到的就是一个 Buffer。
+app.addContentTypeParser("application/octet-stream", { parseAs: "buffer" }, (req, body, done) => done(null, body));
+
 // 只有走 HTTPS 访问时才给 cookie 加 Secure，否则本机 http:// 部署会直接登不上。
 // 用 req.protocol 而不是 req.secure：开了 trustProxy 时前者才会在 https 反代下报对。
 function cookieOpts(req) {
@@ -93,6 +100,9 @@ function prep(sql) {
 // 插件注册、管理员引导与监听统一收进文件末尾的 start()：
 // 单文件产物跑的是 CJS，不支持顶层 await
 app.addHook("onSend", async (req, reply, payload) => {
+  // 画布转发路径自己带 CSP：drawio 需要 eval 与内联脚本，套主站这套会直接白屏，
+  // 而 permissions-policy 一类的限制也会顺手废掉它的摄像头/定位功能
+  if (req.url.startsWith(DRAWIO_PREFIX + "/") || req.url === DRAWIO_PREFIX) return payload;
   reply.header("x-content-type-options", "nosniff");
   reply.header("referrer-policy", "same-origin");
   reply.header("x-frame-options", "SAMEORIGIN");
@@ -161,7 +171,7 @@ app.addHook("preHandler", async (req, reply) => {
 });
 
 app.get("/api/config", async () => ({
-  drawioUrl: process.env.DRAWIO_URL || "",
+  drawioUrl: DRAWIO_PUBLIC,
   version: APP_VERSION,
   registration: registrationOpen(),
 }));
@@ -393,12 +403,13 @@ app.delete("/api/folders/:id", async (req, reply) => {
   const delFolder = db.prepare("DELETE FROM folders WHERE id = ?");
   const delVersions = db.prepare("DELETE FROM file_versions WHERE file_id = ?");
   const delShares = db.prepare("DELETE FROM shares WHERE file_id = ?");
+  const delAssets = db.prepare("DELETE FROM assets WHERE file_id = ?");
   const selectOwnedFiles = db.prepare("SELECT id FROM files WHERE folder_id = ? AND owner_id = ?");
   const delFiles = db.prepare("DELETE FROM files WHERE folder_id = ? AND owner_id = ?");
   const tx = db.transaction(() => {
     for (const d of doomed) {
       delFolder.run(d);
-      for (const f of selectOwnedFiles.all(d, req.user.id)) { delVersions.run(f.id); delShares.run(f.id); }
+      for (const f of selectOwnedFiles.all(d, req.user.id)) { delVersions.run(f.id); delShares.run(f.id); delAssets.run(f.id); }
       delFiles.run(d, req.user.id);
     }
   });
@@ -546,6 +557,7 @@ app.delete("/api/files/:id", async (req, reply) => {
   const tx = db.transaction(() => {
     db.prepare("DELETE FROM file_versions WHERE file_id = ?").run(id);
     db.prepare("DELETE FROM shares WHERE file_id = ?").run(id);
+    db.prepare("DELETE FROM assets WHERE file_id = ?").run(id);
     return db.prepare("DELETE FROM files WHERE id = ? AND owner_id = ?").run(id, req.user.id);
   });
   if (!tx().changes) return reply.code(404).send({ error: "not found" });
@@ -668,6 +680,88 @@ app.get("/api/share/:token/content", async (req, reply) => {
   return { name: s.name, type: s.type, content: s.content, version: s.version, updated_at: s.updated_at };
 });
 
+// ---------- Markdown 图片与附件 ----------
+// 内容里只写根相对路径 /asset/<id>，绝不写主机与端口：换域名、换端口、加反代、
+// 跨实例搬迁都不用改文档，反代只需要转发主站这一个端口。导出 zip 时再改写成本地相对路径。
+const MAX_ASSET = 5 * 1024 * 1024;           // 单个附件上限
+const MAX_ASSET_TOTAL = 40 * 1024 * 1024;    // 单篇文档合计上限，防止一次灌爆库
+const ASSET_ID_RE = /^[0-9a-f]{24}$/;
+// 允许在页面里直接渲染的类型；其余一律 application/octet-stream + 下载
+const INLINE_MIME = new Set([
+  "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/avif", "image/svg+xml",
+  "application/pdf", "text/plain", "text/csv", "application/json",
+]);
+
+function guessMime(name, declared) {
+  const d = String(declared || "").split(";")[0].trim().toLowerCase();
+  if (INLINE_MIME.has(d)) return d;
+  const ext = path.extname(String(name || "")).slice(1).toLowerCase();
+  const BY_EXT = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp", avif: "image/avif", svg: "image/svg+xml", pdf: "application/pdf", txt: "text/plain", md: "text/plain", csv: "text/csv", json: "application/json" };
+  return BY_EXT[ext] || "application/octet-stream";
+}
+
+// SVG 能带脚本：让它作为 <img> 仍能渲染（子资源不看 Content-Disposition），
+// 但直接打开时强制下载，配合本站 CSP，脚本没有执行机会。
+function dispositionFor(a) {
+  const name = encodeURIComponent(a.name).replaceAll("'", "%27");
+  const download = a.mime === "image/svg+xml" || a.mime === "application/octet-stream";
+  return `${download ? "attachment" : "inline"}; filename*=UTF-8''${name}`;
+}
+
+app.post("/api/files/:id/assets", async (req, reply) => {
+  const fileId = Number(req.params.id);
+  const file = prep("SELECT id, locked_by, lock_expires FROM files WHERE id = ? AND owner_id = ?").get(fileId, req.user.id);
+  if (!file) return reply.code(404).send({ error: "not found" });
+  // 上传等于改文档，所以沿用编辑锁：别人正在编辑时不能往里塞东西
+  if (!lockActive(file) || file.locked_by !== req.user.id) {
+    return reply.code(423).send({ error: "not-locked", msg: "插入图片/附件需要先持有编辑锁" });
+  }
+  const buf = Buffer.isBuffer(req.body) ? req.body : null;
+  if (!buf || !buf.length) return reply.code(400).send({ error: "空的附件内容" });
+  if (buf.length > MAX_ASSET) return reply.code(413).send({ error: `单个附件最大 ${Math.floor(MAX_ASSET / 1024 / 1024)}MB` });
+  const total = prep("SELECT COALESCE(SUM(size),0) AS n FROM assets WHERE file_id = ?").get(fileId).n;
+  if (total + buf.length > MAX_ASSET_TOTAL) {
+    return reply.code(413).send({ error: `单篇文档附件合计上限 ${Math.floor(MAX_ASSET_TOTAL / 1024 / 1024)}MB` });
+  }
+  const raw = String(req.query.name || "附件");
+  const cleaned = cleanName(raw.split("/").pop());
+  if (cleaned.error) return reply.code(400).send({ error: cleaned.error });
+  const id = crypto.randomBytes(12).toString("hex");
+  const mime = guessMime(cleaned.name, req.query.type);
+  db.prepare("INSERT INTO assets (id, file_id, owner_id, name, mime, size, data) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(id, fileId, req.user.id, cleaned.name, mime, buf.length, buf);
+  app.log.info({ ip: req.ip, uid: req.user.id, file_id: fileId, asset: id, bytes: buf.length, mime }, "上传文档附件");
+  return reply.code(201).send({ id, url: `/asset/${id}`, name: cleaned.name, mime, size: buf.length });
+});
+
+// 附件读取不在 /api/ 下，preHandler 不覆盖，这里自己认身份。
+// 对外的判定与文档本身一致：本人能看，或该文档的分享公开可见（带密码的分享要先解锁）。
+app.route({
+  method: ["GET", "HEAD"],
+  url: "/asset/:id",
+  handler: async (req, reply) => {
+    const id = String(req.params.id);
+    if (!ASSET_ID_RE.test(id)) return reply.code(404).send({ error: "not found" });
+    const a = prep("SELECT id, file_id, owner_id, name, mime, size FROM assets WHERE id = ?").get(id);
+    if (!a) return reply.code(404).send({ error: "not found" });
+    let ok = false;
+    const user = verifyToken(req.cookies.topo_token);
+    if (user && user.id === a.owner_id) ok = true;
+    if (!ok) {
+      const shares = prep("SELECT token, pass_hash FROM shares WHERE file_id = ?").all(a.file_id);
+      ok = shares.some((s) => !s.pass_hash || hasShareProof(req, s.token, s.pass_hash));
+    }
+    // 不存在与无权给同一个响应，避免用状态码枚举附件
+    if (!ok) return reply.code(404).send({ error: "not found" });
+    const data = prep("SELECT data FROM assets WHERE id = ?").get(id).data;
+    reply.header("content-type", a.mime);
+    reply.header("content-length", a.size);
+    reply.header("content-disposition", dispositionFor(a));
+    reply.header("cache-control", "private, max-age=86400, immutable");
+    return reply.send(data);
+  },
+});
+
 app.post("/api/change-password", async (req, reply) => {
   const { oldPassword } = req.body || {};
   const user = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
@@ -755,11 +849,33 @@ app.get("/api/stats", async (req) => {
     `SELECT COUNT(*) AS count, COALESCE(SUM(length(content)), 0) AS bytes FROM file_versions
      WHERE file_id IN (SELECT id FROM files WHERE owner_id = ?)`
   ).get(uid);
-  return { files, folders, shares, versions };
+  const assets = db.prepare(
+    `SELECT COUNT(*) AS count, COALESCE(SUM(size), 0) AS bytes FROM assets WHERE owner_id = ?`
+  ).get(uid);
+  return { files, folders, shares, versions, assets };
 });
 
 function safePath(name) {
   return String(name).replace(/[\\/:*?"<>|\x00-\x1f]/g, "_").trim() || "未命名";
+}
+
+// 导出时把 /asset/<id> 换成同目录下的相对文件名。这些字符在 Markdown 链接目标里会被截断，必须转义；
+// 中文不编码，保持可读。
+const HREF_ESCAPES = { "%": "%25", " ": "%20", "(": "%28", ")": "%29", "#": "%23", "<": "%3C", ">": "%3E", '"': "%22", "?": "%3F" };
+const hrefName = (s) => s.replace(/[% ()<>"?]/g, (c) => HREF_ESCAPES[c]);
+const ASSET_REF_RE = /\/asset\/([0-9a-f]{24})/g;
+
+// 同一目录下重名时追加 -2/-3，扩展名保留
+function uniqueName(used, name) {
+  if (!used.has(name)) { used.add(name); return name; }
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const suffix = dot > 0 ? name.slice(dot) : "";
+  let n = 2;
+  while (used.has(`${stem}-${n}${suffix}`)) n++;
+  const cand = `${stem}-${n}${suffix}`;
+  used.add(cand);
+  return cand;
 }
 
 app.get("/api/export.zip", async (req, reply) => {
@@ -778,6 +894,7 @@ app.get("/api/export.zip", async (req, reply) => {
     return parts.length ? parts.join("/") + "/" : "";
   };
   const files = db.prepare("SELECT id, name, type, folder_id, content FROM files WHERE owner_id = ? ORDER BY id").all(uid);
+  const getAsset = db.prepare("SELECT file_id, name, data FROM assets WHERE id = ?");
   const used = new Set();
   let total = 0;
   const entries = [];
@@ -787,11 +904,40 @@ app.get("/api/export.zip", async (req, reply) => {
     let n = 2;
     while (used.has(path)) { path = path.replace(/(\.[^.]+)$/, `-${n++}$1`); }
     used.add(path);
-    total += Buffer.byteLength(f.content, "utf8");
+
+    // 附件落在文档旁边的 <文档名>.assets/ 里：解压后本地打开 Markdown 图片仍然显示
+    let content = f.content;
+    const extra = [];
+    if (f.type === "md") {
+      const dirEnd = path.lastIndexOf("/") + 1;
+      const docFile = path.slice(dirEnd);
+      const assetDir = docFile.replace(/\.[^.]+$/, "") + ".assets/";
+      const ids = new Set();
+      for (const m of content.matchAll(ASSET_REF_RE)) ids.add(m[1]);
+      const usedAssets = new Set();
+      const map = new Map();
+      for (const id of ids) {
+        const a = getAsset.get(id);
+        // 链接指向别人或已删除的附件时原样保留，不导出内容
+        if (!a || a.file_id !== f.id) continue;
+        const name = uniqueName(usedAssets, safePath(a.name).slice(0, 120).replace(/^\.+$/, "附件") || "附件");
+        map.set(id, path.slice(0, dirEnd) + assetDir + name);
+        extra.push({ name: path.slice(0, dirEnd) + assetDir + name, data: a.data });
+      }
+      if (map.size) {
+        content = content.replace(ASSET_REF_RE, (whole, id) => {
+          const full = map.get(id);
+          return full ? hrefName(full.slice(dirEnd)) : whole;
+        });
+      }
+    }
+
+    total += Buffer.byteLength(content, "utf8");
+    for (const e of extra) total += e.data.length;
     if (total > MAX_ZIP_BYTES) {
       return reply.code(413).send({ error: `导出内容超过 ${Math.floor(MAX_ZIP_BYTES / 1024 / 1024)}MB 上限，请分批导出` });
     }
-    entries.push({ name: path, data: f.content });
+    entries.push({ name: path, data: content }, ...extra);
   }
   if (!entries.length) entries.push({ name: "README.txt", data: "（此账号下没有文件）\n" });
   const zip = makeZip(entries);
@@ -886,6 +1032,7 @@ app.delete("/api/admin/users/:id", async (req, reply) => {
     }
     db.prepare("DELETE FROM files WHERE owner_id = ?").run(target.id);
     db.prepare("DELETE FROM folders WHERE owner_id = ?").run(target.id);
+    db.prepare("DELETE FROM assets WHERE owner_id = ?").run(target.id);
     db.prepare("DELETE FROM user_settings WHERE user_id = ?").run(target.id);
     db.prepare("DELETE FROM users WHERE id = ?").run(target.id);
   });
@@ -1009,6 +1156,83 @@ async function smoke() {
     if (res.statusCode !== want) { bad++; console.log(`[smoke] FAIL ${label} -> ${res.statusCode} ${res.body?.slice(0, 120) || ""}`); }
   }
 
+  // 内置画布转发：在同进程起一个桩上游，验剥前缀、CSP 覆盖、越权路径与上游不可达
+  const http = await import("node:http");
+  const stub = http.createServer((req, res) => {
+    if (req.url === "/" || req.url.startsWith("/js/")) {
+      res.writeHead(200, { "content-type": "text/html", "x-frame-options": "DENY", "set-cookie": "upstream=1; Path=/" });
+      res.end(`ok:${req.url}`);
+    } else if (req.url === "/goto") {
+      res.writeHead(302, { location: "/start/here" });
+      res.end();
+    } else {
+      res.writeHead(404).end("nope");
+    }
+  });
+  await new Promise((r) => stub.listen(0, "127.0.0.1", r));
+  const savedUpstream = process.env.DRAWIO_INTERNAL_URL;
+  process.env.DRAWIO_INTERNAL_URL = `http://127.0.0.1:${stub.address().port}`;
+  const viaProxy = await app.inject({ method: "GET", url: "/drawio/js/main.js" });
+  const proxyRoot = await app.inject({ method: "GET", url: DRAWIO_PREFIX });
+  const proxyRedirect = await app.inject({ method: "GET", url: "/drawio/goto" });
+  const proxyTraversal = await app.inject({ method: "GET", url: "/drawio/../etc/passwd" });
+  process.env.DRAWIO_INTERNAL_URL = "http://127.0.0.1:1";   // 一定连不上的端口
+  const proxyDead = await app.inject({ method: "GET", url: "/drawio/" });
+  if (savedUpstream === undefined) delete process.env.DRAWIO_INTERNAL_URL;
+  else process.env.DRAWIO_INTERNAL_URL = savedUpstream;
+  await new Promise((r) => stub.close(r));
+  const proxyChecks = [
+    ["画布转发剥前缀", viaProxy.statusCode === 200 && viaProxy.body === "ok:/js/main.js", "200 ok:/js/main.js"],
+    // 主站那套禁内联脚本的 CSP 会把 drawio 打成白屏，转发时必须换成画布专用的
+    ["画布用自己的 CSP", !/script-src 'self' 'wasm-unsafe-eval'/.test(String(viaProxy.headers["content-security-policy"])), "覆盖"],
+    ["不透传上游 cookie", !String(viaProxy.headers["set-cookie"] || "").includes("upstream"), "无 set-cookie"],
+    ["裸 /drawio 补斜杠", proxyRoot.statusCode === 301 && proxyRoot.headers.location === DRAWIO_PREFIX + "/", "301"],
+    ["跳转补回前缀", proxyRedirect.headers.location === "/drawio/start/here", "/drawio/start/here"],
+    ["拒绝路径穿越", proxyTraversal.statusCode === 400 || proxyTraversal.statusCode === 404, "400/404"],
+    ["上游不可达给 502", proxyDead.statusCode === 502, "502"],
+  ];
+  for (const [label, pass, want] of proxyChecks) {
+    if (!pass) { bad++; console.log(`[smoke] FAIL ${label} -> 期望 ${want}`); }
+  }
+
+  // 图片与附件：只存 /asset/<id> 这种与主机端口无关的路径，本人/匿名分享都能读，导出时改写成本地相对路径
+  const doc = await app.inject({ method: "POST", url: "/api/files", headers: { cookie: cookieValue },
+    payload: { name: "__smoke_assets__", type: "md" } });
+  const docId = doc.json()?.id;
+  await app.inject({ method: "POST", url: `/api/files/${docId}/lock`, headers: { cookie: cookieValue } });
+  const png = Buffer.from("89504e470d0a1a0a0000000d49484452", "hex");
+  const up = await app.inject({ method: "POST", url: `/api/files/${docId}/assets?name=${encodeURIComponent("图片 (1).png")}&type=image/png`,
+    headers: { cookie: cookieValue, "content-type": "application/octet-stream" }, payload: png });
+  const asset = up.json() || {};
+  const ownAsset = await app.inject({ method: "GET", url: asset.url, headers: { cookie: cookieValue } });
+  const anonAsset = await app.inject({ method: "GET", url: asset.url });
+  const share = await app.inject({ method: "POST", url: `/api/files/${docId}/shares`, headers: { cookie: cookieValue }, payload: {} });
+  // 无密码分享的外链访客：文档能看，图就得能显示，否则分享页全是裂图
+  const sharedAsset = await app.inject({ method: "GET", url: asset.url });
+  await app.inject({ method: "PUT", url: `/api/files/${docId}`, headers: { cookie: cookieValue },
+    payload: { content: `![图](${asset.url})\n\n[附件](${asset.url})`, baseVersion: 1 } });
+  const zip = await app.inject({ method: "GET", url: "/api/export.zip", headers: { cookie: cookieValue } });
+  const zipText = zip.rawPayload.toString("utf8");
+  const tooBig = await app.inject({ method: "POST", url: `/api/files/${docId}/assets?name=big.bin`,
+    headers: { cookie: cookieValue, "content-type": "application/octet-stream" }, payload: Buffer.alloc(6 * 1024 * 1024, 7) });
+  const assetDel = await app.inject({ method: "DELETE", url: `/api/files/${docId}`, headers: { cookie: cookieValue } });
+  const afterDel = await app.inject({ method: "GET", url: asset.url, headers: { cookie: cookieValue } });
+  const orphanAssets = db.prepare("SELECT COUNT(*) AS n FROM assets WHERE file_id = ?").get(docId).n;
+  const assetChecks = [
+    ["POST assets", up.statusCode === 201 && asset.url === `/asset/${asset.id}`, "201 /asset/<id>"],
+    ["本人读附件", ownAsset.statusCode === 200 && ownAsset.rawPayload.equals(png) && ownAsset.headers["content-type"] === "image/png", "200 原文"],
+    ["未登录读不到", anonAsset.statusCode === 404, "404"],
+    ["建分享", share.statusCode === 201, "201"],
+    ["无密码分享后可匿名读", sharedAsset.statusCode === 200, "200"],
+    ["超限被拒", tooBig.statusCode === 413, "413"],
+    ["zip 内嵌附件目录", zip.rawPayload.includes(Buffer.from("__smoke_assets__.assets/图片 (1).png")), "含 .assets/"],
+    ["zip 改写为相对路径", zipText.includes("](__smoke_assets__.assets/" + hrefName("图片 (1).png")) + !zipText.includes(asset.url), "相对路径"],
+    ["DELETE 文件级联删附件", assetDel.statusCode === 200 && afterDel.statusCode === 404 && orphanAssets === 0, "级联"],
+  ];
+  for (const [label, pass, want] of assetChecks) {
+    if (!pass) { bad++; console.log(`[smoke] FAIL ${label} -> 期望 ${want}`); }
+  }
+
   const backup = await app.inject({ method: "GET", url: "/api/admin/backup", headers: { cookie: cookieValue } });
   const backupIsSqlite = backup.statusCode === 200 && backup.rawPayload.slice(0, 15).toString("utf8") === "SQLite format 3";
   if (!backupIsSqlite) {
@@ -1024,7 +1248,7 @@ async function smoke() {
   }
 
   await app.close();
-  console.log(`[smoke] ${bad ? "FAILED " + bad : "ok"} netluo ${APP_VERSION}（静态 ${urls.length} 项，鉴权 2 项，写链路 ${steps.length} 步，多用户 ${multi.length} 项，备份与护栏 2 项，登录后 files=${files}）`);
+  console.log(`[smoke] ${bad ? "FAILED " + bad : "ok"} netluo ${APP_VERSION}（静态 ${urls.length} 项，鉴权 2 项，写链路 ${steps.length} 步，多用户 ${multi.length} 项，画布转发 ${proxyChecks.length} 项，附件 ${assetChecks.length} 项，备份与护栏 2 项，登录后 files=${files}）`);
   // 不关掉句柄的话退出钩子删不掉临时库（Windows 上文件被占用）
   try { db.close(); } catch { /* 已经关了 */ }
   process.exit(bad ? 1 : 0);
@@ -1032,10 +1256,15 @@ async function smoke() {
 
 async function start() {
   await app.register(cookie);
+  // 同源画布转发要注册在静态资源之前：/drawio/* 得先于静态通配符命中
+  const proxied = registerDrawioProxy(app);
   // 开发时改完静态文件不该被陈旧的 .gz 盖掉，所以只在生产启用预压缩（构建/镜像里会先跑 npm run vendor 重新压缩）
   await app.register(fastifyStatic, { root: PUBLIC_DIR, preCompressed: process.env.NODE_ENV === "production" });
   await bootstrapAdmin();
   await app.listen({ port: Number(process.env.PORT || 3000), host: "0.0.0.0" });
+  console.log(`[topo] 画布地址: ${DRAWIO_PUBLIC}` + (DRAWIO_PUBLIC === DRAWIO_PREFIX
+    ? `（内置同源转发 -> ${defaultUpstream()}，反代只需主站一个端口）`
+    : proxied ? "（外部地址优先，内置 /drawio 转发仍可用）" : "（外部地址）"));
   if (SMOKE) return smoke();
 }
 

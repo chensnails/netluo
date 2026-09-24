@@ -117,6 +117,25 @@ CREATE INDEX IF NOT EXISTS idx_shares_file ON shares(file_id);
     addColumn("users", "last_login_at", "TEXT");
     d.exec(`UPDATE users SET role = 'admin' WHERE id = (SELECT MIN(id) FROM users)`);
   },
+
+  // v3：Markdown 里插入的图片与附件。存进库而不是磁盘：整库备份、迁移快照、
+  // zip 导出都自动覆盖到它，不需要再多管一个目录或数据卷。
+  (d) => {
+    d.exec(`
+CREATE TABLE IF NOT EXISTS assets (
+  id TEXT PRIMARY KEY,
+  file_id INTEGER NOT NULL REFERENCES files(id),
+  owner_id INTEGER NOT NULL REFERENCES users(id),
+  name TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  data BLOB NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_assets_file ON assets(file_id);
+CREATE INDEX IF NOT EXISTS idx_assets_owner ON assets(owner_id);
+`);
+  },
 ];
 
 function currentVersion() {

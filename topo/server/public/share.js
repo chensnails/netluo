@@ -49,8 +49,9 @@ async function openEditor() {
   const frame = $("frame");
   frame.parentElement.classList.remove("hidden");
   frame.classList.remove("hidden");
-  const base = config.drawioUrl.replace(/\/+$/, "");
-  drawioOrigin = new URL(base).origin;
+  const canvasUrl = CanvasWatch.resolve(config.drawioUrl);
+  const base = canvasUrl.href.replace(/\/+$/, "");
+  drawioOrigin = canvasUrl.origin;
   frame.src = `${base}/?embed=1&proto=json&spin=1&lang=zh&noExitBtn=1&modified=0${TopoTheme.resolve() === "dark" ? "&dark=1" : ""}`;
   CanvasWatch.start(frame, frame.src);
 }

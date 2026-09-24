@@ -26,7 +26,7 @@ jobs:
       - name: 生成第三方前端资产
         run: npm run vendor
 
-      - name: 冒烟自检（路由 / 鉴权 / 多用户 / 写链路 / 备份）
+      - name: 冒烟自检（路由 / 鉴权 / 多用户 / 写链路 / 画布转发 / 附件 / 备份）
         run: npm run smoke
 
       - name: 数据库迁移（空库与老库两种起点）
@@ -67,6 +67,11 @@ jobs:
             sleep 1
           done
           curl -fsS -o /dev/null http://127.0.0.1:3090/api/config   # 起不来就在这里失败
+          # 零配置下画布必须走内置同源转发，而不是要求用户先填一个外部地址
+          curl -fsS http://127.0.0.1:3090/api/config | grep -q '"drawioUrl":"/drawio"' || { echo "零配置没落到内置 /drawio 转发"; exit 1; }
+          # 这个容器旁边没有 drawio，转发要给出可诊断的 502，而不是把请求挂住或 500
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3090/drawio/)
+          test "$code" = "502" || { echo "无上游时 /drawio/ 返回 $code，期望 502"; exit 1; }
           # 随机凭据必须落在卷里、权限收紧到 0600
           docker exec netluo-zero sh -c 'stat -c "%a %n" /data/token.secret /data/admin-password'
           test "$(docker exec netluo-zero stat -c %a /data/admin-password)" = "600"

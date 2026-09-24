@@ -1,8 +1,8 @@
 // topo/nginx/netluo.conf 的回归测试：用 nginx:alpine 把仓库里那份配置真跑一遍。
-// 单域名反代依赖三件事，任一不成立用户侧就是画布白屏：
-//   1) 语法与指令可用（http2、proxy_hide_header 一类拼错在这步暴露）
-//   2) /drawio/ 转给上游时剥掉前缀（proxy_pass 结尾少个 / 就是这条）
-//   3) 其余路径原样给主站；/drawio 不带斜杠要 301 到 /drawio/（相对路径资源的前提）；80 跳 https
+// 这份配置的全部承诺就三条：
+//   1) 语法与指令可用（http2、client_max_body_size 一类拼错在这步暴露）
+//   2) 只有一个 upstream：画布由主站自己在同源 /drawio/ 下转发，反代不必再开第二个端口
+//   3) 所有路径（含 /drawio/**）原样转给主站；80 跳 https
 // 需要 Linux 版 Docker 与 openssl（--network host 让容器访问宿主上游桩），缺任一则跳过。
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -14,8 +14,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const CONF = path.join(HERE, "..", "..", "nginx", "netluo.conf");
-const APP_PORT = 13210;     // 上游桩：主站
-const DRAWIO_PORT = 13211;  // 上游桩：drawio
+const APP_PORT = 13210;     // 上游桩：主站（画布的转发由它负责）
 const HTTP = 18080;         // 配置里 listen 80 那组换成的端口
 const HTTPS = 18443;
 const CONTAINER = "netluo-nginx-test";
@@ -54,10 +53,7 @@ function render(conf, { behavior }) {
   let out = conf.replaceAll("topo.example.com", "netluo.test")
     .replace("listen 80;", `listen ${HTTP};`)
     .replace("listen 443 ssl http2;", `listen ${HTTPS} ssl http2;`);
-  if (behavior) {
-    out = out.replace("server 127.0.0.1:3090;", `server 127.0.0.1:${APP_PORT};`)
-      .replace("server 127.0.0.1:3091;", `server 127.0.0.1:${DRAWIO_PORT};`);
-  }
+  if (behavior) out = out.replace("server 127.0.0.1:3090;", `server 127.0.0.1:${APP_PORT};`);
   return out;
 }
 
@@ -106,33 +102,33 @@ async function main() {
   const syntax = checkSyntax();
   expect(syntax.ok, `nginx -t 未通过：\n${syntax.out.split("\n").filter((l) => /emerg|invalid|unknown|not compatible/.test(l)).join("\n")}`);
 
-  const appSeen = [], drawioSeen = [];
+  const appSeen = [];
   const s1 = await stub(APP_PORT, appSeen, "app");
-  const s2 = await stub(DRAWIO_PORT, drawioSeen, "drawio");
   const up = await startNginx();
   expect(up.ok, `nginx 容器没起来：${up.out}`);
   if (up.ok) {
     const canvas = await get(`https://127.0.0.1:${HTTPS}/drawio/js/main.js`);
     const api = await get(`https://127.0.0.1:${HTTPS}/api/config`);
-    const slash = await get(`https://127.0.0.1:${HTTPS}/drawio`);
     const plain = await get(`http://127.0.0.1:${HTTP}/`);
-    log(`画布资源 ${canvas.status} | 主站接口 ${api.status} | /drawio ${slash.status} ${slash.location} | 80 ${plain.status} ${plain.location}`);
-    expect(drawioSeen.includes("/js/main.js"), `/drawio/ 没剥前缀，drawio 上游只收到 ${JSON.stringify(drawioSeen)}`);
+    log(`画布路径 ${canvas.status} | 主站接口 ${api.status} | 80 ${plain.status} ${plain.location}`);
+    expect(canvas.status === 200, `/drawio/** 没能经主站取到：${canvas.status}`);
+    expect(appSeen.includes("/drawio/js/main.js"), `画布请求没转给主站（应由主站内部转发），收到 ${JSON.stringify(appSeen)}`);
     expect(appSeen.includes("/api/config"), `主站转发失败，app 上游收到 ${JSON.stringify(appSeen)}`);
-    expect(!appSeen.some((p) => p.startsWith("/drawio")), "画布请求串到了主站上游");
-    expect(slash.status === 301 && slash.location.endsWith("/drawio/"), `/drawio 没跳带斜杠：${slash.status} ${slash.location}`);
     expect(plain.status === 301 && plain.location.startsWith("https://"), `80 端口没跳 https：${plain.status} ${plain.location}`);
   }
+  // 这份配置的存在意义就是「只转发一个端口」，多出来第二个 upstream 说明改动跑偏了
+  const raw = fs.readFileSync(CONF, "utf8");
+  expect((raw.match(/^upstream /gm) || []).length === 1, "netluo.conf 里出现了不止一个 upstream");
+  expect(!/netluo_drawio/.test(raw), "netluo.conf 仍残留 drawio 的 upstream/location");
   rm();
   s1.close();
-  s2.close();
   fs.rmSync(TMP, { recursive: true, force: true });
 
   if (failed) {
     console.error(`[nginx-test] FAIL ${failed}`);
     return 1;
   }
-  log("PASS 语法 ok · /drawio/ 剥前缀 · 主站转发 · 斜杠与 https 跳转");
+  log("PASS 语法 ok · 单一 upstream · 主站转发（含 /drawio/**） · 80 跳 https");
   return 0;
 }
 

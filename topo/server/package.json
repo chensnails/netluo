@@ -1,6 +1,6 @@
 {
   "name": "netluo",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "description": "络图 NetLuo — 网络拓扑与 Markdown 文档协作平台",
   "type": "module",

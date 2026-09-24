@@ -15,6 +15,8 @@ const check = (name, ok) => {
   if (!ok) fails.push(name);
 };
 
+const hasTable = (db, name) => !!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(name);
+
 function freshCheck() {
   const file = path.join(dir, "fresh.db");
   process.env.TOPO_DB = file;
@@ -22,7 +24,8 @@ function freshCheck() {
     const db = m.default;
     const v = Number(db.pragma("user_version", { simple: true }));
     const cols = db.prepare("PRAGMA table_info(users)").all().map((c) => c.name);
-    check("空库升到最新结构", v === 2 && cols.includes("role") && cols.includes("status") && cols.includes("token_epoch"));
+    check("空库升到最新结构", v === 3 && cols.includes("role") && cols.includes("status") && cols.includes("token_epoch"));
+    check("空库有附件表", hasTable(db, "assets"));
     check("空库不产生快照", !fs.readdirSync(dir).some((n) => n.includes("premigration")));
     const admin = db.prepare("INSERT INTO users (username,pass_hash,role) VALUES ('admin','x','admin')").run();
     check("空库建表后可写入", Number(admin.lastInsertRowid) === 1);
@@ -66,7 +69,8 @@ async function legacyCheck() {
   const u = db.prepare("SELECT id,username,role,status FROM users").get();
   const f = db.prepare("SELECT id,name,owner_id FROM files").all();
   const snapshots = fs.readdirSync(dir).filter((n) => n.includes("premigration"));
-  check("老库升到最新结构", v === 2);
+  check("老库升到最新结构", v === 3);
+  check("老库补出附件表", hasTable(db, "assets"));
   check("老库首个用户提为 admin 且可用", u?.role === "admin" && u?.status === "active");
   check("老库数据完好", f.length === 1 && f[0].name === "示例拓扑-测试用");
   check("迁移前留下快照", snapshots.length === 1);

@@ -152,11 +152,13 @@ async function acquireLock() {
   if (!fileId) { $("fname").textContent = "缺少文件 id"; return; }
   try {
     const config = await api("GET", "/api/config");
-    if (!config.drawioUrl) { $("fname").textContent = "服务器未配置 DRAWIO_URL"; return; }
+    if (!config.drawioUrl) { $("fname").textContent = "服务器未配置画布地址"; return; }
+    let canvasUrl;
     try {
-      expectedOrigin = new URL(config.drawioUrl).origin;
+      canvasUrl = CanvasWatch.resolve(config.drawioUrl);
+      expectedOrigin = canvasUrl.origin;
     } catch {
-      $("fname").textContent = "DRAWIO_URL 配置无法解析，已停止加载";
+      $("fname").textContent = "画布地址配置无法解析，已停止加载";
       return;
     }
     meta = await api("GET", `/api/files/${fileId}`);
@@ -166,7 +168,7 @@ async function acquireLock() {
     if (!readOnly) setStatus("编辑器加载中…");
     await TopoTheme.pull();
     const dark = TopoTheme.resolve() === "dark" ? "&dark=1" : "";
-    const base = config.drawioUrl.replace(/\/+$/, "");
+    const base = canvasUrl.href.replace(/\/+$/, "");
     frame.src = `${base}/?embed=1&proto=json&spin=1&lang=zh&noExitBtn=1${dark}`;
     CanvasWatch.start(frame, frame.src);
   } catch (e) {
